@@ -31,11 +31,13 @@ import {
     generateUpdateRequest, 
     generateResource, 
     generateTypeScript,
-    generateApiRoutes
+    generateApiRoutes,
+    generateComposerJson,
+    generateReadme
 } from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
 import { getLayoutedElements } from '../services/layout';
-import { Code, Download, Plus, Sparkles, X, Share2, Layout } from 'lucide-react';
+import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers } from 'lucide-react';
 
 const nodeTypes = {
   table: TableNode,
@@ -78,13 +80,16 @@ export default function Editor() {
       // 2. Normal Column-to-Column connection
       if (!params.sourceHandle || !params.targetHandle) return;
       
+      // Normalize handle IDs (remove src-, tgt-, -r, -l prefixes/suffixes)
+      const cleanSourceId = params.sourceHandle.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+      const cleanTargetId = params.targetHandle.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+
       // Smart Auto-Update for Generic Columns being connected to IDs
       // If user connects 'some_string' -> 'id', assume it's an FK
       setNodes((nds) => {
           return nds.map(node => {
               if (node.id === params.source) {
-                  const colId = params.sourceHandle?.replace('src-', '');
-                  const col = node.data.columns.find((c: Column) => c.id === colId);
+                  const col = node.data.columns.find((c: Column) => c.id === cleanSourceId);
                   
                   // If connecting a generic string/int to an ID, make it a foreignId
                   if (col && (col.type === LaravelColumnType.STRING || col.type === LaravelColumnType.INTEGER) && !col.name.endsWith('_id')) {
@@ -94,7 +99,7 @@ export default function Editor() {
                            const newName = `${targetNode.data.name.replace(/s$/, '')}_id`;
                            // Update the column
                            const updatedColumns = node.data.columns.map((c: Column) => {
-                               if (c.id === colId) {
+                               if (c.id === cleanSourceId) {
                                    return { ...c, name: newName, type: LaravelColumnType.FOREIGN_ID, nullable: true };
                                }
                                return c;
@@ -122,8 +127,13 @@ export default function Editor() {
       if (!relationshipWizard) return;
       
       const { sourceId, targetId } = relationshipWizard;
-      const sourceNode = nodes.find(n => n.id === sourceId);
-      const targetNode = nodes.find(n => n.id === targetId);
+      // Handle Swap Logic
+      const isSwapped = config.isSwapped;
+      const actualSourceId = isSwapped ? targetId : sourceId;
+      const actualTargetId = isSwapped ? sourceId : targetId;
+
+      const sourceNode = nodes.find(n => n.id === actualSourceId);
+      const targetNode = nodes.find(n => n.id === actualTargetId);
       
       if (!sourceNode || !targetNode) return;
       
@@ -131,7 +141,7 @@ export default function Editor() {
       const newNodes: Node[] = [];
       
       if (type === '1:N') {
-          // Add table_a_id to Table B
+          // Add table_a_id to Table B (Target)
           const fkName = `${sourceNode.data.name.replace(/s$/, '')}_id`;
           const fkId = generateId();
           
@@ -150,7 +160,7 @@ export default function Editor() {
               };
               
               setNodes(nds => nds.map(n => {
-                  if (n.id === targetId) {
+                  if (n.id === actualTargetId) {
                       return { ...n, data: { ...n.data, columns: [...n.data.columns, newCol] }};
                   }
                   return n;
@@ -159,19 +169,14 @@ export default function Editor() {
           }
 
           // Create Edge: Target(FK) -> Source(ID)
-          // Wait, usually the arrow points from FK to PK (References)
-          // So TargetNode (Child) -> SourceNode (Parent)
-          // SourceHandle: The new FK column in TargetNode
-          // TargetHandle: The ID column in SourceNode
-          
           const sourcePkId = sourceNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
           
           if (targetColId && sourcePkId) {
              setEdges(eds => addEdge({
-                 id: `e-${targetId}-${sourceId}-${Math.random()}`,
-                 source: targetId,
+                 id: `e-${actualTargetId}-${actualSourceId}-${Math.random()}`,
+                 source: actualTargetId,
                  sourceHandle: `src-${targetColId}`,
-                 target: sourceId,
+                 target: actualSourceId,
                  targetHandle: `tgt-${sourcePkId}`,
                  animated: true,
                  style: { stroke: '#6366f1', strokeWidth: 2 },
@@ -180,13 +185,12 @@ export default function Editor() {
           }
 
       } else if (type === '1:1') {
-           // Same as 1:N but unique
-           const fkName = `${targetNode.data.name.replace(/s$/, '')}_id`;
+           // Same as 1:N but unique, usually FK on Target pointing to Source
+           const fkName = `${sourceNode.data.name.replace(/s$/, '')}_id`;
            const fkId = generateId();
            
-           // Add FK to Source Node (Table A has One Table B)
-           const exists = sourceNode.data.columns.find((c: Column) => c.name === fkName);
-           let sourceColId = exists?.id;
+           const exists = targetNode.data.columns.find((c: Column) => c.name === fkName);
+           let targetColId = exists?.id;
 
            if (!exists) {
                const newCol: Column = {
@@ -194,28 +198,28 @@ export default function Editor() {
                    name: fkName,
                    type: LaravelColumnType.FOREIGN_ID,
                    nullable: true,
-                   unique: true, // Key difference
+                   unique: true, 
                    onDelete: 'cascade'
                };
                
                setNodes(nds => nds.map(n => {
-                  if (n.id === sourceId) {
+                  if (n.id === actualTargetId) {
                       return { ...n, data: { ...n.data, columns: [...n.data.columns, newCol] }};
                   }
                   return n;
               }));
-              sourceColId = fkId;
+              targetColId = fkId;
            }
            
-           const targetPkId = targetNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
+           const sourcePkId = sourceNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
            
-           if (sourceColId && targetPkId) {
+           if (targetColId && sourcePkId) {
               setEdges(eds => addEdge({
-                  id: `e-${sourceId}-${targetId}-${Math.random()}`,
-                  source: sourceId,
-                  sourceHandle: `src-${sourceColId}`,
-                  target: targetId,
-                  targetHandle: `tgt-${targetPkId}`,
+                  id: `e-${actualTargetId}-${actualSourceId}-${Math.random()}`,
+                  source: actualTargetId,
+                  sourceHandle: `src-${targetColId}`,
+                  target: actualSourceId,
+                  targetHandle: `tgt-${sourcePkId}`,
                   animated: true,
                   style: { stroke: '#6366f1', strokeWidth: 2 },
                   markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
@@ -264,10 +268,10 @@ export default function Editor() {
           // Connect Pivot -> Source
           if (sourcePkId) {
                newEdges.push({
-                 id: `e-${pivotId}-${sourceId}-${Math.random()}`,
+                 id: `e-${pivotId}-${actualSourceId}-${Math.random()}`,
                  source: pivotId,
                  sourceHandle: `src-${col1Id}`,
-                 target: sourceId,
+                 target: actualSourceId,
                  targetHandle: `tgt-${sourcePkId}`,
                  animated: true,
                  style: { stroke: '#6366f1', strokeWidth: 2 },
@@ -278,10 +282,10 @@ export default function Editor() {
           // Connect Pivot -> Target
           if (targetPkId) {
                newEdges.push({
-                 id: `e-${pivotId}-${targetId}-${Math.random()}`,
+                 id: `e-${pivotId}-${actualTargetId}-${Math.random()}`,
                  source: pivotId,
                  sourceHandle: `src-${col2Id}`,
-                 target: targetId,
+                 target: actualTargetId,
                  targetHandle: `tgt-${targetPkId}`,
                  animated: true,
                  style: { stroke: '#6366f1', strokeWidth: 2 },
@@ -353,6 +357,79 @@ export default function Editor() {
       },
     };
     setNodes((nds) => nds.concat(newTable));
+  };
+  
+  const handleAddCoreTables = () => {
+      const coreTables: TableData[] = [
+          {
+              name: 'users',
+              columns: [
+                  { id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false },
+                  { id: generateId(), name: 'name', type: LaravelColumnType.STRING, nullable: false, unique: false },
+                  { id: generateId(), name: 'email', type: LaravelColumnType.STRING, nullable: false, unique: true },
+                  { id: generateId(), name: 'email_verified_at', type: LaravelColumnType.TIMESTAMP, nullable: true, unique: false },
+                  { id: generateId(), name: 'password', type: LaravelColumnType.STRING, nullable: false, unique: false },
+                  { id: generateId(), name: 'remember_token', type: LaravelColumnType.STRING, length: 100, nullable: true, unique: false },
+              ],
+              timestamps: true,
+              softDeletes: false,
+              color: '#eef2ff'
+          },
+          {
+              name: 'password_reset_tokens',
+              columns: [
+                  { id: generateId(), name: 'email', type: LaravelColumnType.STRING, nullable: false, unique: false, index: true }, // Primary key handled differently usually
+                  { id: generateId(), name: 'token', type: LaravelColumnType.STRING, nullable: false, unique: false },
+                  { id: generateId(), name: 'created_at', type: LaravelColumnType.TIMESTAMP, nullable: true, unique: false },
+              ],
+              timestamps: false,
+              softDeletes: false,
+              color: '#fffbeb'
+          },
+          {
+              name: 'failed_jobs',
+              columns: [
+                   { id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false },
+                   { id: generateId(), name: 'uuid', type: LaravelColumnType.STRING, nullable: false, unique: true },
+                   { id: generateId(), name: 'connection', type: LaravelColumnType.TEXT, nullable: false, unique: false },
+                   { id: generateId(), name: 'queue', type: LaravelColumnType.TEXT, nullable: false, unique: false },
+                   { id: generateId(), name: 'payload', type: LaravelColumnType.LONG_TEXT, nullable: false, unique: false },
+                   { id: generateId(), name: 'exception', type: LaravelColumnType.LONG_TEXT, nullable: false, unique: false },
+                   { id: generateId(), name: 'failed_at', type: LaravelColumnType.TIMESTAMP, nullable: false, unique: false, default: 'CURRENT_TIMESTAMP' },
+              ],
+              timestamps: false,
+              softDeletes: false,
+              color: '#fef2f2'
+          },
+           {
+              name: 'jobs',
+              columns: [
+                   { id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false },
+                   { id: generateId(), name: 'queue', type: LaravelColumnType.STRING, nullable: false, unique: false, index: true },
+                   { id: generateId(), name: 'payload', type: LaravelColumnType.LONG_TEXT, nullable: false, unique: false },
+                   { id: generateId(), name: 'attempts', type: LaravelColumnType.TINY_INTEGER, nullable: false, unique: false, unsigned: true },
+                   { id: generateId(), name: 'reserved_at', type: LaravelColumnType.INTEGER, nullable: true, unique: false, unsigned: true },
+                   { id: generateId(), name: 'available_at', type: LaravelColumnType.INTEGER, nullable: false, unique: false, unsigned: true },
+                   { id: generateId(), name: 'created_at', type: LaravelColumnType.INTEGER, nullable: false, unique: false, unsigned: true },
+              ],
+              timestamps: false,
+              softDeletes: false,
+              color: '#fef2f2'
+          }
+      ];
+
+      const newNodes: Node[] = coreTables.map((t, idx) => ({
+          id: generateId(),
+          type: 'table',
+          position: { x: 50 + (idx * 320), y: 100 },
+          data: {
+              ...t,
+              onEdit: (id: string) => setSelectedTableId(id),
+              onDelete: (id: string) => handleDeleteTable(id),
+          }
+      }));
+
+      setNodes(nds => [...nds, ...newNodes]);
   };
 
   const handleDeleteTable = (id: string) => {
@@ -515,9 +592,20 @@ export default function Editor() {
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedTableId), [nodes, selectedTableId]);
   
   const generatedFiles = useMemo(() => {
-      const files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' }[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' }[] = [];
       
       // Global files
+      files.push({
+          name: 'composer.json',
+          content: generateComposerJson(nodes),
+          type: 'config'
+      });
+      files.push({
+          name: 'README.md',
+          content: generateReadme(nodes),
+          type: 'markdown'
+      });
       if(nodes.length > 0) {
           files.push({
               name: 'api.php',
@@ -617,7 +705,7 @@ export default function Editor() {
             >
                 <Background gap={12} size={1} />
                 <Controls />
-                <MiniMap style={{background: '#1e293b'}} nodeColor={() => '#6366f1'} />
+                <MiniMap style={{background: '#1e293b'}} nodeColor={(n) => n.data.color || '#6366f1'} />
                 
                 {/* Top Toolbar */}
                 <Panel position="top-center" className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center mt-4 flex-wrap justify-center mx-4 animate-in slide-in-from-top-4 duration-500 z-40">
@@ -627,6 +715,14 @@ export default function Editor() {
                     >
                         <Plus size={16} />
                         New Table
+                    </button>
+
+                     <button 
+                        onClick={handleAddCoreTables}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white rounded-xl text-sm font-bold transition-all"
+                    >
+                        <Layers size={16} />
+                        Add Core Tables
                     </button>
                     
                     <button 

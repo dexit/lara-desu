@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { TableData, LaravelColumnType } from '../types';
-import { Key, Settings, Trash2, Link } from 'lucide-react';
+import { Key, Settings, Trash2 } from 'lucide-react';
 
 // Define the data prop type
 type TableNodeProps = NodeProps<TableData & { 
@@ -11,7 +11,7 @@ type TableNodeProps = NodeProps<TableData & {
 
 const TableNode = ({ id, data }: TableNodeProps) => {
   return (
-    <div className="min-w-[250px] bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden font-sans group/node">
+    <div className="min-w-[250px] bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden font-sans group/node transition-shadow hover:shadow-2xl hover:border-indigo-300 dark:hover:border-indigo-700">
       {/* Header */}
       <div 
         className="relative px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors"
@@ -22,7 +22,8 @@ const TableNode = ({ id, data }: TableNodeProps) => {
             type="source" 
             position={Position.Top} 
             id="table-handle"
-            className="!w-4 !h-2 !rounded-sm !bg-indigo-500 !-top-1 opacity-0 group-hover/node:opacity-100 transition-opacity z-10 cursor-crosshair"
+            className="!w-4 !h-4 !rounded-full !bg-white !border-2 !border-indigo-500 !-top-2 opacity-0 group-hover/node:opacity-100 transition-opacity z-10 cursor-crosshair hover:!scale-125"
+            title="Drag to another table to create relationship"
         />
         <Handle 
             type="target" 
@@ -32,7 +33,7 @@ const TableNode = ({ id, data }: TableNodeProps) => {
             isConnectableStart={false}
         />
 
-        <div className="font-bold text-slate-800 dark:text-slate-900 truncate relative z-10">
+        <div className="font-bold text-slate-800 dark:text-slate-900 truncate relative z-10 text-sm">
             {data.name}
         </div>
         <div className="flex gap-1 relative z-10">
@@ -73,7 +74,8 @@ const TableNode = ({ id, data }: TableNodeProps) => {
                 {col.type}
             </div>
             
-            {/* Handles for connecting relations */}
+            {/* Handles for connecting relations - Left/Right for bidirectional flow */}
+            {/* Source handles */}
             <Handle 
                 type="source" 
                 position={Position.Right} 
@@ -86,11 +88,24 @@ const TableNode = ({ id, data }: TableNodeProps) => {
                 id={`tgt-${col.id}`}
                 className="!w-3 !h-3 !bg-slate-400 hover:!bg-indigo-500 hover:!w-4 hover:!h-4 transition-all opacity-0 group-hover:opacity-100 -left-1.5"
             />
+            {/* Secondary invisible handles to allow opposite connection direction if needed by engine */}
+             <Handle 
+                type="target" 
+                position={Position.Right} 
+                id={`tgt-r-${col.id}`}
+                className="!w-3 !h-3 !opacity-0 !bg-transparent -right-1.5"
+            />
+             <Handle 
+                type="source" 
+                position={Position.Left} 
+                id={`src-l-${col.id}`}
+                 className="!w-3 !h-3 !opacity-0 !bg-transparent -left-1.5"
+            />
           </div>
         ))}
-        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between text-xs text-slate-400 px-2">
-            <span>{data.timestamps ? 'created_at, updated_at' : ''}</span>
-            <span>{data.softDeletes ? 'deleted_at' : ''}</span>
+        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between text-[10px] text-slate-400 px-2 uppercase tracking-wider font-semibold">
+            <span>{data.timestamps ? 'TIMESTAMPS' : ''}</span>
+            <span>{data.softDeletes ? 'SOFT DELETES' : ''}</span>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, ArrowRight, ArrowLeftRight, GitMerge, Link } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, ArrowRight, ArrowLeftRight, GitMerge, Link, ArrowRightLeft } from 'lucide-react';
 import { TableData } from '../types';
 import { Node } from 'reactflow';
 
@@ -13,10 +13,15 @@ interface RelationshipModalProps {
 export default function RelationshipModal({ sourceNode, targetNode, onClose, onSubmit }: RelationshipModalProps) {
     const [type, setType] = useState<'1:1' | '1:N' | 'N:M'>('1:N');
     const [cascade, setCascade] = useState(true);
+    const [isSwapped, setIsSwapped] = useState(false);
     
+    // Determine actual source/target based on swap state
+    const actualSource = isSwapped ? targetNode : sourceNode;
+    const actualTarget = isSwapped ? sourceNode : targetNode;
+
     // Auto-generated names
-    const sourceName = sourceNode.data.name;
-    const targetName = targetNode.data.name;
+    const sourceName = actualSource.data.name;
+    const targetName = actualTarget.data.name;
     
     // Naming conventions
     const sourceFk = `${sourceName.replace(/s$/, '')}_id`; // e.g., users -> user_id
@@ -44,8 +49,8 @@ export default function RelationshipModal({ sourceNode, targetNode, onClose, onS
                 <div className="p-6 flex-1 overflow-y-auto">
                     
                     {/* Visualizer */}
-                    <div className="flex items-center justify-center gap-8 mb-8 py-4">
-                        <div className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-lg font-bold border border-indigo-200 dark:border-indigo-700">
+                    <div className="flex items-center justify-center gap-4 mb-8 py-4 relative">
+                        <div className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-lg font-bold border border-indigo-200 dark:border-indigo-700 min-w-[100px] text-center">
                             {sourceName}
                         </div>
                         
@@ -59,9 +64,17 @@ export default function RelationshipModal({ sourceNode, targetNode, onClose, onS
                                 </div>
                             )}
                             {type === 'N:M' && <ArrowLeftRight size={24} className="text-purple-500" />}
+                            
+                             <button 
+                                onClick={() => setIsSwapped(!isSwapped)}
+                                className="absolute -bottom-6 p-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors shadow-sm border border-slate-200 dark:border-slate-700"
+                                title="Swap Direction"
+                            >
+                                <ArrowRightLeft size={14} />
+                            </button>
                         </div>
 
-                        <div className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-4 py-2 rounded-lg font-bold border border-emerald-200 dark:border-emerald-700">
+                        <div className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-4 py-2 rounded-lg font-bold border border-emerald-200 dark:border-emerald-700 min-w-[100px] text-center">
                             {targetName}
                         </div>
                     </div>
@@ -151,7 +164,7 @@ export default function RelationshipModal({ sourceNode, targetNode, onClose, onS
                         Cancel
                     </button>
                     <button 
-                        onClick={() => onSubmit(type, { cascade })}
+                        onClick={() => onSubmit(type, { cascade, isSwapped })}
                         className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm shadow-lg shadow-indigo-500/30 transition-all"
                     >
                         Create Relationship

@@ -1,4 +1,3 @@
-
 import { Node, Edge } from "reactflow";
 import { TableData, Column, LaravelColumnType } from "../types";
 
@@ -29,8 +28,16 @@ export const generateMigration = (
   
   const outgoingEdges = allEdges.filter(e => e.source === node.id);
 
+  // Normalize handle ID for checking connections
+  const checkEdgeConnection = (colId: string) => {
+      return outgoingEdges.find(e => {
+          const cleanSource = e.sourceHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+          return cleanSource === colId;
+      });
+  }
+
   const columnLines = table.columns.map(col => {
-    return generateColumnLine(col, outgoingEdges, allNodes);
+    return generateColumnLine(col, checkEdgeConnection(col.id), allNodes);
   }).join('\n');
   
   const softDeletes = table.softDeletes ? `            $table->softDeletes();\n` : '';
@@ -66,16 +73,13 @@ ${timestamps}${softDeletes}        });
 
 const generateColumnLine = (
   col: Column, 
-  outgoingEdges: Edge[], 
+  edge: Edge | undefined, 
   allNodes: Node<TableData>[]
 ): string => {
   if (col.type === LaravelColumnType.ID) {
     return `            $table->id();`;
   }
 
-  // Check connection
-  const edge = outgoingEdges.find(e => e.sourceHandle === `src-${col.id}`);
-  
   let line = `            $table->`;
   
   // Handle Special Types
@@ -97,8 +101,12 @@ const generateColumnLine = (
   if (col.nullable) line += `->nullable()`;
   if (col.unique) line += `->unique()`;
   if (col.default !== undefined && col.default !== '') {
-      const isNum = !isNaN(Number(col.default)) && col.type !== LaravelColumnType.STRING;
-      line += `->default(${isNum ? col.default : `'${col.default}'`})`;
+      if (col.default === 'CURRENT_TIMESTAMP') {
+          line += `->useCurrent()`;
+      } else {
+          const isNum = !isNaN(Number(col.default)) && col.type !== LaravelColumnType.STRING;
+          line += `->default(${isNum ? col.default : `'${col.default}'`})`;
+      }
   }
   if (col.index) line += `->index()`;
   if (col.unsigned) line += `->unsigned()`;
@@ -107,7 +115,8 @@ const generateColumnLine = (
   // Relationship Constraint
   if (edge) {
     const targetNode = allNodes.find(n => n.id === edge.target);
-    const targetCol = targetNode?.data.columns.find(c => `tgt-${c.id}` === edge.targetHandle);
+    const cleanTargetHandle = edge.targetHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+    const targetCol = targetNode?.data.columns.find(c => c.id === cleanTargetHandle);
     
     if (targetNode) {
         if (targetCol && targetCol.name !== 'id') {
@@ -173,12 +182,15 @@ export const generateModel = (
         .join(',\n        ');
 
     // Relationships
+    // Clean edge source handling
     const outgoingEdges = allEdges.filter(e => e.source === node.id);
     const belongsToMethods = outgoingEdges.map(edge => {
         const targetNode = allNodes.find(n => n.id === edge.target);
         if(!targetNode) return '';
         const targetModel = getModelName(targetNode.data.name);
-        const col = table.columns.find(c => `src-${c.id}` === edge.sourceHandle);
+        
+        const cleanSourceHandle = edge.sourceHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+        const col = table.columns.find(c => c.id === cleanSourceHandle);
         const methodName = col ? col.name.replace(/_id$/, '') : targetModel.toLowerCase();
 
         return `
@@ -197,7 +209,8 @@ export const generateModel = (
         if(!sourceNode) return '';
         
         // Check if the relationship is One-to-One (source column is unique)
-        const sourceCol = sourceNode.data.columns.find(c => `src-${c.id}` === edge.sourceHandle);
+        const cleanSourceHandle = edge.sourceHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+        const sourceCol = sourceNode.data.columns.find(c => c.id === cleanSourceHandle);
         const isOneToOne = sourceCol?.unique;
         
         const sourceModel = getModelName(sourceNode.data.name);
@@ -606,6 +619,97 @@ class ${modelName}Controller extends Controller
         });
     }
 }
+`;
+}
+
+// --- Composer Generator ---
+export const generateComposerJson = (nodes: Node<TableData>[]): string => {
+    return `{
+    "name": "laravel/laravel",
+    "type": "project",
+    "description": "The skeleton application for the Laravel framework.",
+    "keywords": ["laravel", "framework"],
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "laravel/framework": "^11.0",
+        "laravel/tinker": "^2.9",
+        "doctrine/dbal": "^3.0"
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "laravel/pint": "^1.13",
+        "laravel/sail": "^1.26",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.0",
+        "phpunit/phpunit": "^10.5",
+        "spatie/laravel-ignition": "^2.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\\\": "app/",
+            "Database\\\\Factories\\\\": "database/factories/",
+            "Database\\\\Seeders\\\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\\\Foundation\\\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
+`;
+}
+
+export const generateReadme = (nodes: Node<TableData>[]): string => {
+    const tableList = nodes.map(n => `- ${n.data.name}`).join('\n');
+    return `# Laravel Application Schema
+
+Generated by LaraSchema Architect.
+
+## Database Structure
+
+This application contains ${nodes.length} tables:
+
+${tableList}
+
+## Installation
+
+1. Clone the repository
+2. Run \`composer install\`
+3. Run \`php artisan migrate\`
+4. Run \`php artisan db:seed\`
+
+## Features
+
+- **Models**: Full Eloquent models with strict typing.
+- **API**: Full REST API controllers and resources.
+- **Tests**: Factories included for robust testing.
 `;
 }
 

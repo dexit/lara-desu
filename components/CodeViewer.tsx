@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-php';
-import { Copy, Check, FileCode, Database, Terminal, Code2, Download, Search } from 'lucide-react';
-import JSZip from 'jszip'; // Not available in import map but logic can be simulated or we add simple download
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-markdown';
+import { Copy, Check, FileCode, Database, Terminal, Code2, Search, Package } from 'lucide-react';
 
 interface CodeViewerProps {
-  files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' }[];
+  files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' }[];
   onClose: () => void;
 }
 
@@ -14,24 +16,40 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
   const [copied, setCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    Prism.highlightAll();
-  }, [selectedFileIndex, files]);
+  const activeFile = files[selectedFileIndex];
+
+  const highlightedCode = useMemo(() => {
+    if (!activeFile) return '';
+    
+    let grammar = Prism.languages.php;
+    if (activeFile.name.endsWith('.json')) grammar = Prism.languages.json;
+    if (activeFile.name.endsWith('.ts')) grammar = Prism.languages.typescript;
+    if (activeFile.name.endsWith('.md')) grammar = Prism.languages.markdown;
+    
+    return Prism.highlight(
+      activeFile.content,
+      grammar,
+      activeFile.name.endsWith('.json') ? 'json' : (activeFile.name.endsWith('.ts') ? 'typescript' : (activeFile.name.endsWith('.md') ? 'markdown' : 'php'))
+    );
+  }, [activeFile]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(files[selectedFileIndex].content);
+    navigator.clipboard.writeText(activeFile.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const getIcon = (type: string) => {
+  const getIcon = (type: string, name: string) => {
+      if (name === 'composer.json') return <Package size={14} className="text-orange-400" />;
       switch(type) {
           case 'migration': return <Database size={14} className="text-yellow-500" />;
           case 'model': return <Code2 size={14} className="text-indigo-400" />;
           case 'seeder': return <Terminal size={14} className="text-green-500" />;
           case 'controller': return <FileCode size={14} className="text-purple-400" />;
+          case 'markdown': return <FileCode size={14} className="text-blue-400" />;
+          case 'config': return <Package size={14} className="text-orange-400" />;
           default: return <FileCode size={14} />;
       }
   };
@@ -58,7 +76,7 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
                 </div>
             </div>
 
-            <div className="overflow-y-auto flex-1 py-2">
+            <div className="overflow-y-auto flex-1 py-2 custom-scrollbar">
                 {filteredFiles.map((file, idx) => {
                     const originalIndex = files.indexOf(file);
                     return (
@@ -67,7 +85,7 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
                             onClick={() => setSelectedFileIndex(originalIndex)}
                             className={`w-full text-left px-4 py-1.5 text-[13px] flex items-center gap-2 transition-colors border-l-2 ${selectedFileIndex === originalIndex ? 'bg-[#37373d] text-white border-indigo-500' : 'text-slate-400 border-transparent hover:bg-[#2a2d2e] hover:text-slate-200'}`}
                         >
-                            {getIcon(file.type)}
+                            {getIcon(file.type, file.name)}
                             <span className="truncate">{file.name}</span>
                         </button>
                     );
@@ -85,7 +103,7 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
                         onClick={() => setSelectedFileIndex(idx)}
                         className={`px-4 py-2 text-xs flex items-center gap-2 border-r border-[#333] min-w-[120px] max-w-[200px] ${selectedFileIndex === idx ? 'bg-[#1e1e1e] text-indigo-400 border-t-2 border-t-indigo-500' : 'text-slate-500 hover:bg-[#2a2d2e]'}`}
                      >
-                        {getIcon(file.type)}
+                        {getIcon(file.type, file.name)}
                         <span className="truncate">{file.name}</span>
                         {selectedFileIndex === idx && <div className="ml-auto w-2 h-2 rounded-full bg-white/20" />}
                      </button>
@@ -113,9 +131,10 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
              {/* Editor */}
              <div className="flex-1 overflow-auto custom-scrollbar relative bg-[#1e1e1e]">
                  <pre className="line-numbers !bg-transparent !m-0 !p-4 !font-mono">
-                     <code className="language-php">
-                        {files[selectedFileIndex].content}
-                     </code>
+                     <code 
+                        className={`language-${activeFile?.name.endsWith('.json') ? 'json' : (activeFile?.name.endsWith('.md') ? 'markdown' : 'php')}`}
+                        dangerouslySetInnerHTML={{ __html: highlightedCode }}
+                     />
                  </pre>
              </div>
         </div>

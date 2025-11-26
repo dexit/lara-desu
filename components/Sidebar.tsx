@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle, Link2, AlertCircle, List } from 'lucide-react';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
@@ -12,7 +12,6 @@ interface SidebarProps {
 export default function Sidebar({ selectedNode, onUpdateTable, onClose }: SidebarProps) {
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
 
-  // When node changes, reset state if needed, but since we map props directly, no heavy state sync needed
   if (!selectedNode) return null;
 
   const { data } = selectedNode;
@@ -30,11 +29,10 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
       unique: false
     };
     onUpdateTable(selectedNode.id, { columns: [...data.columns, newCol] });
-    setExpandedCol(newCol.id); // Auto expand new column
+    setExpandedCol(newCol.id);
   };
 
   const handleUpdateColumn = (colId: string, updates: Partial<Column>) => {
-    // If setting to 'set null', ensure column is nullable
     if (updates.onDelete === 'set null' || updates.onUpdate === 'set null') {
         updates.nullable = true;
     }
@@ -137,7 +135,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                 
                 <div className="space-y-2">
                     <label className="block text-xs font-bold text-slate-500 uppercase">Appearance</label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 items-center">
                         {[
                             { c: '#eef2ff', n: 'Indigo' }, 
                             { c: '#f0fdf4', n: 'Green' }, 
@@ -154,6 +152,21 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                 title={theme.n}
                             />
                         ))}
+                        {/* Custom Color Picker */}
+                         <div className="relative group">
+                            <input 
+                                type="color" 
+                                value={data.color || '#ffffff'} 
+                                onChange={(e) => onUpdateTable(selectedNode.id, { color: e.target.value })}
+                                className="w-8 h-8 rounded-full overflow-hidden border-0 p-0 cursor-pointer opacity-0 absolute inset-0 z-10"
+                            />
+                            <div 
+                                className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-600 shadow-sm flex items-center justify-center bg-white dark:bg-slate-700 text-slate-400 group-hover:text-indigo-500 transition-colors"
+                                style={{ backgroundColor: data.color }}
+                            >
+                                <Palette size={14} className="mix-blend-difference text-white" />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
