@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle } from 'lucide-react';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle, Link2, AlertCircle } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
@@ -33,6 +33,11 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
   };
 
   const handleUpdateColumn = (colId: string, updates: Partial<Column>) => {
+    // If setting to 'set null', ensure column is nullable
+    if (updates.onDelete === 'set null' || updates.onUpdate === 'set null') {
+        updates.nullable = true;
+    }
+    
     const newCols = data.columns.map(c => c.id === colId ? { ...c, ...updates } : c);
     onUpdateTable(selectedNode.id, { columns: newCols });
   };
@@ -122,7 +127,10 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                 </div>
                 
                 <div className="space-y-3">
-                    {data.columns.map((col, idx) => (
+                    {data.columns.map((col, idx) => {
+                        const isForeignKey = col.type === LaravelColumnType.FOREIGN_ID || col.name.endsWith('_id');
+                        
+                        return (
                         <div key={col.id} className={`bg-white dark:bg-slate-900 border rounded-lg transition-all ${expandedCol === col.id ? 'border-indigo-500 ring-1 ring-indigo-500/20' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}>
                             {/* Column Header */}
                             <div 
@@ -136,6 +144,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                     <div className="flex items-center gap-2">
                                         <span className="font-mono text-sm font-semibold dark:text-slate-200 truncate">{col.name}</span>
                                         {col.type === LaravelColumnType.ID && <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold">PK</span>}
+                                        {isForeignKey && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 rounded font-bold">FK</span>}
                                     </div>
                                     <div className="text-[10px] text-slate-500">{col.type}</div>
                                 </div>
@@ -198,7 +207,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                     </div>
 
                                     <div className="flex gap-4 pt-1">
-                                         <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                                         <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
                                             <input 
                                                 type="checkbox" 
                                                 checked={col.nullable} 
@@ -207,7 +216,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                             />
                                             Nullable
                                         </label>
-                                        <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                                        <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
                                             <input 
                                                 type="checkbox" 
                                                 checked={col.unique} 
@@ -216,7 +225,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                             />
                                             Unique
                                         </label>
-                                         <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                                         <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
                                             <input 
                                                 type="checkbox" 
                                                 checked={col.index} 
@@ -226,10 +235,73 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                             Index
                                         </label>
                                     </div>
+                                    
+                                    {/* Relationship Configuration */}
+                                    {isForeignKey && (
+                                        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 animate-in slide-in-from-top-2 duration-200">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Link2 size={12} className="text-indigo-500" />
+                                                <label className="text-[10px] uppercase text-indigo-600 dark:text-indigo-400 font-bold">Relationship Settings</label>
+                                            </div>
+                                            
+                                            {/* Relationship Type */}
+                                            <div className="flex bg-slate-100 dark:bg-slate-800 rounded p-1 mb-3">
+                                                 <button
+                                                    className={`flex-1 text-xs py-1 rounded transition-all ${!col.unique ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white font-medium' : 'text-slate-500 dark:text-slate-400'}`}
+                                                    onClick={() => handleUpdateColumn(col.id, { unique: false })}
+                                                 >
+                                                    One-to-Many
+                                                 </button>
+                                                 <button
+                                                    className={`flex-1 text-xs py-1 rounded transition-all ${col.unique ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white font-medium' : 'text-slate-500 dark:text-slate-400'}`}
+                                                    onClick={() => handleUpdateColumn(col.id, { unique: true })}
+                                                 >
+                                                    One-to-One
+                                                 </button>
+                                            </div>
+                                    
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="text-[10px] text-slate-400 mb-1 block">On Delete</label>
+                                                    <select
+                                                        value={col.onDelete || 'cascade'}
+                                                        onChange={(e) => handleUpdateColumn(col.id, { onDelete: e.target.value })}
+                                                        className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs dark:text-white focus:ring-1 focus:ring-indigo-500"
+                                                    >
+                                                        <option value="cascade">Cascade</option>
+                                                        <option value="set null">Set Null</option>
+                                                        <option value="restrict">Restrict</option>
+                                                        <option value="no action">No Action</option>
+                                                    </select>
+                                                </div>
+                                                 <div>
+                                                    <label className="text-[10px] text-slate-400 mb-1 block">On Update</label>
+                                                    <select
+                                                         value={col.onUpdate || 'cascade'}
+                                                        onChange={(e) => handleUpdateColumn(col.id, { onUpdate: e.target.value })}
+                                                        className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs dark:text-white focus:ring-1 focus:ring-indigo-500"
+                                                    >
+                                                         <option value="cascade">Cascade</option>
+                                                        <option value="set null">Set Null</option>
+                                                        <option value="restrict">Restrict</option>
+                                                        <option value="no action">No Action</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            
+                                            {col.onDelete === 'set null' && !col.nullable && (
+                                                <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-1.5 rounded">
+                                                    <AlertCircle size={10} />
+                                                    <span>Set Null requires column to be nullable. (Auto-enabled)</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </div>

@@ -90,13 +90,40 @@ const generateColumnLine = (
         } else {
              line += `->constrained('${targetNode.data.name}')`;
         }
-        line += `->cascadeOnDelete()`; 
+        
+        // On Delete
+        if (col.onDelete) {
+            if (col.onDelete === 'cascade') line += `->cascadeOnDelete()`;
+            else if (col.onDelete === 'set null') line += `->nullOnDelete()`;
+            else if (col.onDelete === 'restrict') line += `->restrictOnDelete()`;
+        } else {
+            // Default behavior if not specified. Usually cascade for generated schemas is helpful, 
+            // but let's stick to the sidebar default which is 'cascade' if touched. 
+            // If untouched, maybe default to cascade to match previous behavior.
+            line += `->cascadeOnDelete()`;
+        }
+        
+        // On Update
+        if (col.onUpdate) {
+            if (col.onUpdate === 'cascade') line += `->cascadeOnUpdate()`;
+            else if (col.onUpdate === 'set null') line += `->nullOnUpdate()`;
+            else if (col.onUpdate === 'restrict') line += `->restrictOnUpdate()`;
+        }
     }
   } else if (col.type === LaravelColumnType.FOREIGN_ID) {
       // Auto-infer
       const inferredTable = col.name.replace(/_id$/, 's'); 
       if (inferredTable !== col.name) {
           line += `->constrained('${inferredTable}')`;
+          
+          // Apply same logic for inferred relationships
+          if (col.onDelete === 'cascade' || !col.onDelete) line += `->cascadeOnDelete()`;
+          else if (col.onDelete === 'set null') line += `->nullOnDelete()`;
+          else if (col.onDelete === 'restrict') line += `->restrictOnDelete()`;
+
+          if (col.onUpdate === 'cascade') line += `->cascadeOnUpdate()`;
+          else if (col.onUpdate === 'set null') line += `->nullOnUpdate()`;
+          else if (col.onUpdate === 'restrict') line += `->restrictOnUpdate()`;
       }
   }
 
@@ -144,15 +171,27 @@ export const generateModel = (
     const hasManyMethods = incomingEdges.map(edge => {
         const sourceNode = allNodes.find(n => n.id === edge.source);
         if(!sourceNode) return '';
+        
+        // Check if the relationship is One-to-One (source column is unique)
+        const sourceCol = sourceNode.data.columns.find(c => `src-${c.id}` === edge.sourceHandle);
+        const isOneToOne = sourceCol?.unique;
+        
         const sourceModel = toPascalCase(sourceNode.data.name).replace(/s$/, '');
-        const methodName = toCamelCase(sourceNode.data.name);
+        const methodName = toCamelCase(sourceNode.data.name); 
+        // For HasOne, usually singular name
+        const finalMethodName = isOneToOne ? methodName.replace(/s$/, '') : methodName;
+        const relationClass = isOneToOne ? 'HasOne' : 'HasMany';
+        const relationMethod = isOneToOne ? 'hasOne' : 'hasMany';
 
         return `
-    public function ${methodName}(): HasMany
+    public function ${finalMethodName}(): ${relationClass}
     {
-        return $this->hasMany(${sourceModel}::class);
+        return $this->${relationMethod}(${sourceModel}::class);
     }`;
     }).join('\n');
+    
+    // Add HasOne import if needed
+    const hasOneImport = hasManyMethods.includes('HasOne') ? 'use Illuminate\\Database\\Eloquent\\Relations\\HasOne;' : '';
 
     return `<?php
 
@@ -162,6 +201,7 @@ use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;
 use Illuminate\\Database\\Eloquent\\Model;
 use Illuminate\\Database\\Eloquent\\Relations\\BelongsTo;
 use Illuminate\\Database\\Eloquent\\Relations\\HasMany;
+${hasOneImport}
 ${table.softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : ''}
 
 class ${modelName} extends Model
