@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column } from '../types';
 import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle, Link2, AlertCircle, List } from 'lucide-react';
@@ -13,6 +12,7 @@ interface SidebarProps {
 export default function Sidebar({ selectedNode, onUpdateTable, onClose }: SidebarProps) {
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
 
+  // When node changes, reset state if needed, but since we map props directly, no heavy state sync needed
   if (!selectedNode) return null;
 
   const { data } = selectedNode;
@@ -49,6 +49,51 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
 
   const handleOptionToggle = (key: 'timestamps' | 'softDeletes') => {
       onUpdateTable(selectedNode.id, { [key]: !data[key] });
+  }
+
+  const renderColumnTypeOptions = () => {
+      return (
+          <>
+            <optgroup label="Identifiers & Relations">
+                <option value={LaravelColumnType.ID}>id (PK)</option>
+                <option value={LaravelColumnType.FOREIGN_ID}>foreignId (FK)</option>
+                <option value={LaravelColumnType.UUID}>uuid</option>
+                <option value={LaravelColumnType.ULID}>ulid</option>
+                <option value={LaravelColumnType.MORPHS}>morphs</option>
+            </optgroup>
+            <optgroup label="Strings & Text">
+                <option value={LaravelColumnType.STRING}>string</option>
+                <option value={LaravelColumnType.TEXT}>text</option>
+                <option value={LaravelColumnType.LONG_TEXT}>longText</option>
+                <option value={LaravelColumnType.CHAR}>char</option>
+            </optgroup>
+            <optgroup label="Numbers">
+                <option value={LaravelColumnType.INTEGER}>integer</option>
+                <option value={LaravelColumnType.BIG_INTEGER}>bigInteger</option>
+                <option value={LaravelColumnType.SMALL_INTEGER}>smallInteger</option>
+                <option value={LaravelColumnType.TINY_INTEGER}>tinyInteger</option>
+                <option value={LaravelColumnType.DECIMAL}>decimal</option>
+                <option value={LaravelColumnType.FLOAT}>float</option>
+                <option value={LaravelColumnType.DOUBLE}>double</option>
+                <option value={LaravelColumnType.BOOLEAN}>boolean</option>
+            </optgroup>
+            <optgroup label="Date & Time">
+                <option value={LaravelColumnType.DATE}>date</option>
+                <option value={LaravelColumnType.DATETIME}>dateTime</option>
+                <option value={LaravelColumnType.TIMESTAMP}>timestamp</option>
+                <option value={LaravelColumnType.TIME}>time</option>
+                <option value={LaravelColumnType.YEAR}>year</option>
+            </optgroup>
+            <optgroup label="Complex & Network">
+                <option value={LaravelColumnType.JSON}>json</option>
+                <option value={LaravelColumnType.ENUM}>enum</option>
+                <option value={LaravelColumnType.IP_ADDRESS}>ipAddress</option>
+                <option value={LaravelColumnType.MAC_ADDRESS}>macAddress</option>
+                <option value={LaravelColumnType.BINARY}>binary</option>
+                <option value={LaravelColumnType.GEOMETRY}>geometry</option>
+            </optgroup>
+          </>
+      );
   }
 
   return (
@@ -177,9 +222,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                                 onChange={(e) => handleUpdateColumn(col.id, { type: e.target.value })}
                                                 className="w-full mt-1 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 dark:text-white"
                                             >
-                                                {Object.values(LaravelColumnType).map(t => (
-                                                    <option key={t} value={t}>{t}</option>
-                                                ))}
+                                                {renderColumnTypeOptions()}
                                             </select>
                                         </div>
                                     </div>

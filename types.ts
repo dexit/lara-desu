@@ -29,22 +29,49 @@ export interface SchemaState {
 }
 
 export enum LaravelColumnType {
+  // Numeric
   ID = 'id',
   FOREIGN_ID = 'foreignId',
-  STRING = 'string',
-  TEXT = 'text',
   INTEGER = 'integer',
   BIG_INTEGER = 'bigInteger',
-  BOOLEAN = 'boolean',
+  TINY_INTEGER = 'tinyInteger',
+  SMALL_INTEGER = 'smallInteger',
+  MEDIUM_INTEGER = 'mediumInteger',
   DECIMAL = 'decimal',
   FLOAT = 'float',
+  DOUBLE = 'double',
+  
+  // String & Text
+  STRING = 'string',
+  TEXT = 'text',
+  MEDIUM_TEXT = 'mediumText',
+  LONG_TEXT = 'longText',
+  CHAR = 'char',
+  
+  // Date & Time
   DATE = 'date',
   DATETIME = 'dateTime',
   TIMESTAMP = 'timestamp',
+  TIME = 'time',
+  YEAR = 'year',
+  
+  // Logic & Json
+  BOOLEAN = 'boolean',
   JSON = 'json',
-  UUID = 'uuid',
-  BINARY = 'binary',
   ENUM = 'enum',
+  
+  // Binary & identifiers
+  UUID = 'uuid',
+  ULID = 'ulid',
+  BINARY = 'binary',
+  
+  // Network & Geo
+  MAC_ADDRESS = 'macAddress',
+  IP_ADDRESS = 'ipAddress',
+  GEOMETRY = 'geometry',
+  POINT = 'point',
+  
+  // Relationships
   MORPHS = 'morphs',
 }
 

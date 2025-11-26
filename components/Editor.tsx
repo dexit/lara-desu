@@ -19,8 +19,20 @@ import Sidebar from './Sidebar';
 import ContextMenu from './ContextMenu';
 import CodeViewer from './CodeViewer';
 import AiAssistantModal from './AiAssistantModal';
-import { TableData, LaravelColumnType, AiSettings } from '../types';
-import { generateMigration, generateModel, generateSeeder, generateController } from '../services/laravelExporter';
+import RelationshipModal from './RelationshipModal';
+import { TableData, LaravelColumnType, AiSettings, Column } from '../types';
+import { 
+    generateMigration, 
+    generateModel, 
+    generateSeeder, 
+    generateController, 
+    generateFactory, 
+    generateStoreRequest, 
+    generateUpdateRequest, 
+    generateResource, 
+    generateTypeScript,
+    generateApiRoutes
+} from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
 import { getLayoutedElements } from '../services/layout';
 import { Code, Download, Plus, Sparkles, X, Share2, Layout } from 'lucide-react';
@@ -43,6 +55,10 @@ export default function Editor() {
   
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  
+  // Relationship Modal State
+  const [relationshipWizard, setRelationshipWizard] = useState<{ sourceId: string, targetId: string } | null>(null);
+
   const [menu, setMenu] = useState<{ id: string; top: number; left: number; right: number; bottom: number; type: 'node' | 'edge' | 'pane' } | null>(null);
   
   const ref = useRef<HTMLDivElement>(null);
@@ -51,7 +67,45 @@ export default function Editor() {
 
   const onConnect = useCallback(
     (params: Connection) => {
+      // 1. Check if this is a Table-to-Table connection (Header to Header)
+      if (params.sourceHandle === 'table-handle' || params.targetHandle === 'table-target') {
+          if (params.source && params.target && params.source !== params.target) {
+              setRelationshipWizard({ sourceId: params.source, targetId: params.target });
+          }
+          return;
+      }
+
+      // 2. Normal Column-to-Column connection
       if (!params.sourceHandle || !params.targetHandle) return;
+      
+      // Smart Auto-Update for Generic Columns being connected to IDs
+      // If user connects 'some_string' -> 'id', assume it's an FK
+      setNodes((nds) => {
+          return nds.map(node => {
+              if (node.id === params.source) {
+                  const colId = params.sourceHandle?.replace('src-', '');
+                  const col = node.data.columns.find((c: Column) => c.id === colId);
+                  
+                  // If connecting a generic string/int to an ID, make it a foreignId
+                  if (col && (col.type === LaravelColumnType.STRING || col.type === LaravelColumnType.INTEGER) && !col.name.endsWith('_id')) {
+                       // Find target table name to guess FK name
+                       const targetNode = nds.find(n => n.id === params.target);
+                       if (targetNode) {
+                           const newName = `${targetNode.data.name.replace(/s$/, '')}_id`;
+                           // Update the column
+                           const updatedColumns = node.data.columns.map((c: Column) => {
+                               if (c.id === colId) {
+                                   return { ...c, name: newName, type: LaravelColumnType.FOREIGN_ID, nullable: true };
+                               }
+                               return c;
+                           });
+                           return { ...node, data: { ...node.data, columns: updatedColumns }};
+                       }
+                  }
+              }
+              return node;
+          });
+      });
 
       setEdges((eds) => addEdge({ 
           ...params, 
@@ -61,9 +115,187 @@ export default function Editor() {
           type: 'default'
       }, eds));
     },
-    [setEdges]
+    [setEdges, setNodes]
   );
   
+  const handleCreateRelationship = (type: '1:1' | '1:N' | 'N:M', config: any) => {
+      if (!relationshipWizard) return;
+      
+      const { sourceId, targetId } = relationshipWizard;
+      const sourceNode = nodes.find(n => n.id === sourceId);
+      const targetNode = nodes.find(n => n.id === targetId);
+      
+      if (!sourceNode || !targetNode) return;
+      
+      const newEdges: Edge[] = [];
+      const newNodes: Node[] = [];
+      
+      if (type === '1:N') {
+          // Add table_a_id to Table B
+          const fkName = `${sourceNode.data.name.replace(/s$/, '')}_id`;
+          const fkId = generateId();
+          
+          // Check if column already exists
+          const exists = targetNode.data.columns.find((c: Column) => c.name === fkName);
+          let targetColId = exists?.id;
+
+          if (!exists) {
+              const newCol: Column = {
+                  id: fkId,
+                  name: fkName,
+                  type: LaravelColumnType.FOREIGN_ID,
+                  nullable: false,
+                  unique: false,
+                  onDelete: 'cascade'
+              };
+              
+              setNodes(nds => nds.map(n => {
+                  if (n.id === targetId) {
+                      return { ...n, data: { ...n.data, columns: [...n.data.columns, newCol] }};
+                  }
+                  return n;
+              }));
+              targetColId = fkId;
+          }
+
+          // Create Edge: Target(FK) -> Source(ID)
+          // Wait, usually the arrow points from FK to PK (References)
+          // So TargetNode (Child) -> SourceNode (Parent)
+          // SourceHandle: The new FK column in TargetNode
+          // TargetHandle: The ID column in SourceNode
+          
+          const sourcePkId = sourceNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
+          
+          if (targetColId && sourcePkId) {
+             setEdges(eds => addEdge({
+                 id: `e-${targetId}-${sourceId}-${Math.random()}`,
+                 source: targetId,
+                 sourceHandle: `src-${targetColId}`,
+                 target: sourceId,
+                 targetHandle: `tgt-${sourcePkId}`,
+                 animated: true,
+                 style: { stroke: '#6366f1', strokeWidth: 2 },
+                 markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
+             }, eds));
+          }
+
+      } else if (type === '1:1') {
+           // Same as 1:N but unique
+           const fkName = `${targetNode.data.name.replace(/s$/, '')}_id`;
+           const fkId = generateId();
+           
+           // Add FK to Source Node (Table A has One Table B)
+           const exists = sourceNode.data.columns.find((c: Column) => c.name === fkName);
+           let sourceColId = exists?.id;
+
+           if (!exists) {
+               const newCol: Column = {
+                   id: fkId,
+                   name: fkName,
+                   type: LaravelColumnType.FOREIGN_ID,
+                   nullable: true,
+                   unique: true, // Key difference
+                   onDelete: 'cascade'
+               };
+               
+               setNodes(nds => nds.map(n => {
+                  if (n.id === sourceId) {
+                      return { ...n, data: { ...n.data, columns: [...n.data.columns, newCol] }};
+                  }
+                  return n;
+              }));
+              sourceColId = fkId;
+           }
+           
+           const targetPkId = targetNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
+           
+           if (sourceColId && targetPkId) {
+              setEdges(eds => addEdge({
+                  id: `e-${sourceId}-${targetId}-${Math.random()}`,
+                  source: sourceId,
+                  sourceHandle: `src-${sourceColId}`,
+                  target: targetId,
+                  targetHandle: `tgt-${targetPkId}`,
+                  animated: true,
+                  style: { stroke: '#6366f1', strokeWidth: 2 },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
+              }, eds));
+           }
+
+      } else if (type === 'N:M') {
+          // Create Pivot Table
+          const pivotName = [sourceNode.data.name, targetNode.data.name].sort().map(s => s.replace(/s$/, '')).join('_');
+          const pivotId = generateId();
+          
+          const sourceFkName = `${sourceNode.data.name.replace(/s$/, '')}_id`;
+          const targetFkName = `${targetNode.data.name.replace(/s$/, '')}_id`;
+          
+          const col1Id = generateId();
+          const col2Id = generateId();
+
+          const pivotNode: Node = {
+              id: pivotId,
+              type: 'table',
+              // Place it between them
+              position: { 
+                  x: (sourceNode.position.x + targetNode.position.x) / 2, 
+                  y: (sourceNode.position.y + targetNode.position.y) / 2 + 50
+              },
+              data: {
+                  name: pivotName,
+                  columns: [
+                      { id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false },
+                      { id: col1Id, name: sourceFkName, type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false, onDelete: 'cascade' },
+                      { id: col2Id, name: targetFkName, type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false, onDelete: 'cascade' }
+                  ],
+                  timestamps: true,
+                  softDeletes: false,
+                  color: '#f5f3ff', // Purple for pivot
+                  onEdit: (id: string) => { setSelectedTableId(id); setMenu(null); },
+                  onDelete: (id: string) => { handleDeleteTable(id); setMenu(null); },
+              }
+          };
+          
+          newNodes.push(pivotNode);
+          
+          const sourcePkId = sourceNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
+          const targetPkId = targetNode.data.columns.find((c: Column) => c.type === LaravelColumnType.ID)?.id;
+          
+          // Connect Pivot -> Source
+          if (sourcePkId) {
+               newEdges.push({
+                 id: `e-${pivotId}-${sourceId}-${Math.random()}`,
+                 source: pivotId,
+                 sourceHandle: `src-${col1Id}`,
+                 target: sourceId,
+                 targetHandle: `tgt-${sourcePkId}`,
+                 animated: true,
+                 style: { stroke: '#6366f1', strokeWidth: 2 },
+                 markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
+              });
+          }
+          
+          // Connect Pivot -> Target
+          if (targetPkId) {
+               newEdges.push({
+                 id: `e-${pivotId}-${targetId}-${Math.random()}`,
+                 source: pivotId,
+                 sourceHandle: `src-${col2Id}`,
+                 target: targetId,
+                 targetHandle: `tgt-${targetPkId}`,
+                 animated: true,
+                 style: { stroke: '#6366f1', strokeWidth: 2 },
+                 markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
+              });
+          }
+          
+          setNodes(nds => [...nds, ...newNodes]);
+          setEdges(eds => [...eds, ...newEdges]);
+      }
+      
+      setRelationshipWizard(null);
+  };
+
   const onPaneClick = useCallback(() => setMenu(null), []);
   
   const onNodeContextMenu = useCallback(
@@ -284,6 +516,16 @@ export default function Editor() {
   
   const generatedFiles = useMemo(() => {
       const files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' }[] = [];
+      
+      // Global files
+      if(nodes.length > 0) {
+          files.push({
+              name: 'api.php',
+              content: generateApiRoutes(nodes),
+              type: 'controller'
+          });
+      }
+
       nodes.forEach(node => {
           // Migration
           files.push({
@@ -291,8 +533,10 @@ export default function Editor() {
               content: generateMigration(node, nodes, edges),
               type: 'migration'
           });
-          // Model
+          
           const modelName = node.data.name.replace(/(?:^\w|[A-Z]|\b\w)/g, (word) => word.toUpperCase()).replace(/\s+/g, '').replace(/_/g, '').replace(/s$/, '');
+          
+          // Model
           files.push({
               name: `${modelName}.php`,
               content: generateModel(node, nodes, edges),
@@ -304,15 +548,47 @@ export default function Editor() {
               content: generateSeeder(node),
               type: 'seeder'
           });
+          // Factory
+           files.push({
+              name: `${modelName}Factory.php`,
+              content: generateFactory(node),
+              type: 'seeder'
+          });
           // Controller
           files.push({
               name: `${modelName}Controller.php`,
               content: generateController(node),
               type: 'controller'
           });
+          // Form Requests
+          files.push({
+              name: `Store${modelName}Request.php`,
+              content: generateStoreRequest(node),
+              type: 'controller'
+          });
+          files.push({
+              name: `Update${modelName}Request.php`,
+              content: generateUpdateRequest(node),
+              type: 'controller'
+          });
+          // Resources
+           files.push({
+              name: `${modelName}Resource.php`,
+              content: generateResource(node),
+              type: 'controller'
+          });
+           // TypeScript Types
+           files.push({
+              name: `${modelName}.ts`,
+              content: generateTypeScript(node),
+              type: 'model'
+          });
       });
       return files;
   }, [nodes, edges]);
+
+  const sourceNodeForWizard = useMemo(() => nodes.find(n => n.id === relationshipWizard?.sourceId), [nodes, relationshipWizard]);
+  const targetNodeForWizard = useMemo(() => nodes.find(n => n.id === relationshipWizard?.targetId), [nodes, relationshipWizard]);
 
   return (
     <div className="flex h-screen w-screen bg-slate-50 dark:bg-slate-900 overflow-hidden font-sans" ref={ref}>
@@ -344,7 +620,7 @@ export default function Editor() {
                 <MiniMap style={{background: '#1e293b'}} nodeColor={() => '#6366f1'} />
                 
                 {/* Top Toolbar */}
-                <Panel position="top-center" className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center mt-4 flex-wrap justify-center mx-4 animate-in slide-in-from-top-4 duration-500">
+                <Panel position="top-center" className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center mt-4 flex-wrap justify-center mx-4 animate-in slide-in-from-top-4 duration-500 z-40">
                     <button 
                         onClick={() => handleAddTable()}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md hover:shadow-indigo-500/30"
@@ -438,6 +714,17 @@ export default function Editor() {
                 isLoading={isAiLoading}
             />
         )}
+        
+        {/* Relationship Wizard */}
+        {relationshipWizard && sourceNodeForWizard && targetNodeForWizard && (
+            <RelationshipModal 
+                sourceNode={sourceNodeForWizard}
+                targetNode={targetNodeForWizard}
+                onClose={() => setRelationshipWizard(null)}
+                onSubmit={handleCreateRelationship}
+            />
+        )}
+        
       </ReactFlowProvider>
     </div>
   );
