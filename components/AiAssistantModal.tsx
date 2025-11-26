@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Sparkles, X, Globe, Settings, Terminal, Database, Cpu, MessageSquare, Braces } from 'lucide-react';
+import { Sparkles, X, Globe, Settings, Terminal, Database, Cpu, MessageSquare, Braces, Info } from 'lucide-react';
 import { AiSettings, AVAILABLE_MODELS } from '../types';
 
 interface AiAssistantModalProps {
@@ -21,6 +22,8 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
   const [settings, setSettings] = useState<AiSettings>({
       model: 'gemini-2.5-flash',
       temperature: 0.7,
+      topP: 0.95,
+      topK: 64,
       database: 'mysql'
   });
 
@@ -165,6 +168,7 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
                     <div className="space-y-6 max-w-lg">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">AI Model</label>
+                            <p className="text-xs text-slate-500 mb-2">Select a model optimized for structured JSON generation.</p>
                             <div className="space-y-3">
                                 {AVAILABLE_MODELS.map(model => (
                                     <label key={model.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${settings.model === model.id ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
@@ -185,26 +189,81 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
                             </div>
                         </div>
 
-                        <div>
-                             <div className="flex justify-between mb-2">
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Creativity (Temperature)</label>
-                                <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{settings.temperature}</span>
-                             </div>
-                             <input 
-                                type="range" 
-                                min="0" 
-                                max="1" 
-                                step="0.1" 
-                                value={settings.temperature}
-                                onChange={(e) => setSettings({...settings, temperature: parseFloat(e.target.value)})}
-                                className="w-full accent-indigo-600"
-                            />
-                            <div className="flex justify-between text-xs text-slate-400 mt-1">
-                                <span>Strict</span>
-                                <span>Balanced</span>
-                                <span>Creative</span>
+                        <div className="h-px bg-slate-100 dark:bg-slate-800" />
+
+                        <div className="space-y-4">
+                             <div>
+                                 <div className="flex justify-between mb-2">
+                                    <div className="flex items-center gap-1">
+                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Temperature (Creativity)</label>
+                                        <div className="group relative">
+                                            <Info size={12} className="text-slate-400 cursor-help" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded hidden group-hover:block z-10">
+                                                Controls randomness. Higher values are more creative, lower values are more deterministic.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{settings.temperature}</span>
+                                 </div>
+                                 <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.1" 
+                                    value={settings.temperature}
+                                    onChange={(e) => setSettings({...settings, temperature: parseFloat(e.target.value)})}
+                                    className="w-full accent-indigo-600"
+                                />
+                            </div>
+
+                            <div>
+                                 <div className="flex justify-between mb-2">
+                                    <div className="flex items-center gap-1">
+                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Top P (Nucleus Sampling)</label>
+                                         <div className="group relative">
+                                            <Info size={12} className="text-slate-400 cursor-help" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded hidden group-hover:block z-10">
+                                                Filters the cumulative probability of token selection. Lower values result in less random responses.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{settings.topP || 0.95}</span>
+                                 </div>
+                                 <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.05" 
+                                    value={settings.topP || 0.95}
+                                    onChange={(e) => setSettings({...settings, topP: parseFloat(e.target.value)})}
+                                    className="w-full accent-indigo-600"
+                                />
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between mb-2">
+                                    <div className="flex items-center gap-1">
+                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Top K</label>
+                                        <div className="group relative">
+                                            <Info size={12} className="text-slate-400 cursor-help" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded hidden group-hover:block z-10">
+                                                Limits the number of highest probability tokens to sample from.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <input 
+                                    type="number"
+                                    min="1"
+                                    max="100" 
+                                    value={settings.topK || 64}
+                                    onChange={(e) => setSettings({...settings, topK: parseInt(e.target.value)})}
+                                    className="w-20 px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-sm dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
                             </div>
                         </div>
+                        
+                        <div className="h-px bg-slate-100 dark:bg-slate-800" />
 
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Target Database Engine</label>

@@ -1,3 +1,4 @@
+
 export interface Column {
   id: string;
   name: string;
@@ -59,10 +60,20 @@ export const DEFAULT_COLUMN: Column = {
 export interface AiSettings {
     model: string;
     temperature: number;
+    topP?: number;
+    topK?: number;
     database: 'mysql' | 'sqlite' | 'mariadb' | 'pgsql';
 }
 
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Fastest)', description: 'Best for quick schema drafts' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Reasoning)', description: 'Best for complex logic and relationships' },
+    { 
+        id: 'gemini-2.5-flash', 
+        name: 'Gemini 2.5 Flash', 
+        description: 'Optimized for speed and efficiency. Best for standard schema generation and rapid prototyping.' 
+    },
+    { 
+        id: 'gemini-3-pro-preview', 
+        name: 'Gemini 3.0 Pro (Preview)', 
+        description: 'Highest reasoning capability. Ideal for complex domains, intricate relationships, and advanced logic.' 
+    },
 ];

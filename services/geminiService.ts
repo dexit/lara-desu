@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { TableData, LaravelColumnType, AiSettings } from "../types";
 
@@ -60,6 +61,8 @@ export const suggestSchema = async (prompt: string, settings: AiSettings): Promi
       responseMimeType: "application/json",
       responseSchema: SCHEMA_RESPONSE_TYPE,
       temperature: settings.temperature,
+      topP: settings.topP,
+      topK: settings.topK,
     },
   });
 
@@ -101,6 +104,8 @@ export const suggestSchemaFromJson = async (reqJson: string, resJson: string, se
             responseMimeType: "application/json",
             responseSchema: SCHEMA_RESPONSE_TYPE,
             temperature: settings.temperature,
+            topP: settings.topP,
+            topK: settings.topK,
         }
     });
 
