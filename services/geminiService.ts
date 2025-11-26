@@ -1,64 +1,119 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { TableData, LaravelColumnType } from "../types";
+import { TableData, LaravelColumnType, AiSettings } from "../types";
 
 // Helper to generate a random ID
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-export const suggestSchema = async (prompt: string): Promise<TableData[]> => {
-  if (!process.env.API_KEY) {
-    throw new Error("Gemini API Key is missing.");
-  }
+const SCHEMA_RESPONSE_TYPE = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING, description: "Snake case table name (e.g., user_profiles)" },
+        description: { type: Type.STRING, description: "Table comment/description" },
+        columns: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              type: { type: Type.STRING, description: "Laravel migration type (string, integer, foreignId, etc)" },
+              nullable: { type: Type.BOOLEAN },
+              unique: { type: Type.BOOLEAN },
+              is_foreign_key: { type: Type.BOOLEAN },
+              related_table: { type: Type.STRING, description: "If foreign key, which table it points to" }
+            },
+            required: ["name", "type"],
+          },
+        },
+      },
+      required: ["name", "columns"],
+    },
+};
+
+export const suggestSchema = async (prompt: string, settings: AiSettings): Promise<TableData[]> => {
+  if (!process.env.API_KEY) throw new Error("Gemini API Key is missing.");
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const systemInstruction = `
-    You are an expert Laravel Database Architect.
-    Your task is to generate a database schema based on the user's description.
-    You must return the result as a JSON array of Table objects.
-    Each Table object must have a 'name' (snake_case) and a list of 'columns'.
-    Columns should have 'name', 'type' (valid Laravel migration type), 'nullable' (boolean), and 'unique' (boolean).
-    Infer relationships by adding 'foreignId' type columns (e.g., user_id for users table).
-    Ensure the schema follows standard Laravel conventions (id as primary key, snake_case names).
+    You are a Senior Laravel Database Architect (Laravel 11, PHP 8.2+).
+    Target Database: ${settings.database}.
+    
+    Task: Design a normalized database schema based on the user's requirements.
+    
+    Rules:
+    1. Use 'snake_case' for table and column names.
+    2. Always include 'id' (primary key) implicitly (do not list it unless it's non-standard).
+    3. Use 'foreignId' for relationships. Detect relationships automatically (e.g., user_id -> users).
+    4. For polymorphic relations, suggest a 'morphs' type column or necessary columns.
+    5. Optimize data types (use 'tinyInteger' for small enums, 'json' for flexible data).
+    
+    Return ONLY valid JSON data matching the schema.
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: settings.model,
     contents: prompt,
     config: {
       systemInstruction: systemInstruction,
       responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            columns: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  nullable: { type: Type.BOOLEAN },
-                  unique: { type: Type.BOOLEAN },
-                },
-                required: ["name", "type"],
-              },
-            },
-          },
-          required: ["name", "columns"],
-        },
-      },
+      responseSchema: SCHEMA_RESPONSE_TYPE,
+      temperature: settings.temperature,
     },
   });
 
   const rawTables = JSON.parse(response.text || "[]");
+  return processRawTables(rawTables);
+};
 
-  // Post-process to ensure IDs and standard fields
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const suggestSchemaFromJson = async (reqJson: string, resJson: string, settings: AiSettings): Promise<TableData[]> => {
+    if (!process.env.API_KEY) throw new Error("API Key missing");
+    
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const prompt = `
+    Reverse Engineer a Database Schema from this API interaction.
+    
+    REQUEST PAYLOAD:
+    ${reqJson}
+    
+    RESPONSE PAYLOAD:
+    ${resJson}
+    
+    1. Identify entities.
+    2. Normalize nested objects into separate tables.
+    3. Infer relationships (1:1, 1:N, N:M).
+    4. Infer column types based on value examples.
+    `;
+
+    const systemInstruction = `
+    You are an API Integration Specialist and Database Expert.
+    Convert JSON payloads into a normalized Laravel Schema.
+    Target Database: ${settings.database}.
+    `;
+
+    const response = await ai.models.generateContent({
+        model: settings.model,
+        contents: prompt,
+        config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: SCHEMA_RESPONSE_TYPE,
+            temperature: settings.temperature,
+        }
+    });
+
+    const rawTables = JSON.parse(response.text || "[]");
+    return processRawTables(rawTables);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const processRawTables = (rawTables: any[]): TableData[] => {
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rawTables.map((t: any) => ({
     name: t.name,
+    comment: t.description,
     columns: [
       { id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,10 +123,11 @@ export const suggestSchema = async (prompt: string): Promise<TableData[]> => {
         type: c.type,
         nullable: c.nullable || false,
         unique: c.unique || false,
+        comment: c.is_foreign_key ? `FK to ${c.related_table}` : undefined
       })),
     ],
     softDeletes: false,
     timestamps: true,
-    color: '#eef2ff', // Default light indigo
+    color: '#eef2ff', 
   }));
-};
+}
