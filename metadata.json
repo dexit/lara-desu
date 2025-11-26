@@ -1,0 +1,5 @@
+{
+  "name": "LaraSchema Architect",
+  "description": "A production-ready Laravel Database Schema Designer with AI-powered generation, drag-and-drop interface, and PHP 8.x migration export.",
+  "requestFramePermissions": []
+}
