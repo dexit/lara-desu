@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, X, Globe, Settings, Terminal, Database, Cpu, MessageSquare } from 'lucide-react';
+import { Sparkles, X, Globe, Settings, Terminal, Database, Cpu, MessageSquare, Braces } from 'lucide-react';
 import { AiSettings, AVAILABLE_MODELS } from '../types';
 
 interface AiAssistantModalProps {
@@ -29,6 +29,20 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
           onGenerateText(prompt, settings);
       } else {
           onGenerateJson(apiReq, apiRes, settings);
+      }
+  };
+
+  const formatJson = (type: 'req' | 'res') => {
+      try {
+          if (type === 'req' && apiReq) {
+              const obj = JSON.parse(apiReq);
+              setApiReq(JSON.stringify(obj, null, 2));
+          } else if (type === 'res' && apiRes) {
+              const obj = JSON.parse(apiRes);
+              setApiRes(JSON.stringify(obj, null, 2));
+          }
+      } catch (e) {
+          // Silent fail or visual cue could be added
       }
   };
 
@@ -115,8 +129,13 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
                             Paste the JSON Request and Response bodies from your API to automatically reverse-engineer the schema.
                         </p>
                         <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
-                            <div className="flex flex-col">
-                                <label className="text-xs font-bold text-slate-500 mb-1">Request JSON</label>
+                            <div className="flex flex-col h-full">
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs font-bold text-slate-500">Request JSON (Optional)</label>
+                                    <button onClick={() => formatJson('req')} className="text-[10px] flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700">
+                                        <Braces size={10} /> Format
+                                    </button>
+                                </div>
                                 <textarea
                                     value={apiReq}
                                     onChange={(e) => setApiReq(e.target.value)}
@@ -124,8 +143,13 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
                                     placeholder="{ ... }"
                                 />
                             </div>
-                            <div className="flex flex-col">
-                                <label className="text-xs font-bold text-slate-500 mb-1">Response JSON</label>
+                            <div className="flex flex-col h-full">
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs font-bold text-slate-500">Response JSON</label>
+                                    <button onClick={() => formatJson('res')} className="text-[10px] flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700">
+                                        <Braces size={10} /> Format
+                                    </button>
+                                </div>
                                 <textarea
                                     value={apiRes}
                                     onChange={(e) => setApiRes(e.target.value)}
@@ -214,7 +238,8 @@ export default function AiAssistantModal({ onClose, onGenerateText, onGenerateJs
                             <>Generating...</>
                         ) : (
                             <>
-                                <Cpu size={18} /> Generate Schema
+                                <Cpu size={18} /> 
+                                {activeTab === 'api' ? 'Reverse Engineer Schema' : 'Generate Schema'}
                             </>
                         )}
                     </button>
