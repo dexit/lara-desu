@@ -12,6 +12,7 @@ export interface Column {
   onUpdate?: string;
   onDelete?: string;
   length?: number; // For varchar
+  enumValues?: string; // Comma separated values for enums
 }
 
 export interface TableData {

@@ -1,3 +1,4 @@
+
 import { Node, Edge } from "reactflow";
 import { TableData, Column, LaravelColumnType } from "../types";
 
@@ -59,15 +60,25 @@ const generateColumnLine = (
   // Check connection
   const edge = outgoingEdges.find(e => e.sourceHandle === `src-${col.id}`);
   
-  let line = `            $table->${col.type}('${col.name}'`;
-
-  if (col.type === LaravelColumnType.DECIMAL) {
-     line += `, 8, 2`;
-  } else if (col.type === LaravelColumnType.STRING && col.length) {
-     line += `, ${col.length}`;
-  }
+  let line = `            $table->`;
   
-  line += `)`;
+  // Handle Special Types
+  if (col.type === LaravelColumnType.ENUM && col.enumValues) {
+      const values = col.enumValues.split(',').map(v => `'${v.trim()}'`).join(', ');
+      line += `enum('${col.name}', [${values}])`;
+  } else if (col.type === LaravelColumnType.MORPHS) {
+      line += `morphs('${col.name}')`;
+  } else {
+      line += `${col.type}('${col.name}'`;
+      
+      if (col.type === LaravelColumnType.DECIMAL) {
+         line += `, 8, 2`;
+      } else if (col.type === LaravelColumnType.STRING && col.length) {
+         line += `, ${col.length}`;
+      }
+      
+      line += `)`;
+  }
 
   if (col.nullable) line += `->nullable()`;
   if (col.unique) line += `->unique()`;
@@ -97,9 +108,6 @@ const generateColumnLine = (
             else if (col.onDelete === 'set null') line += `->nullOnDelete()`;
             else if (col.onDelete === 'restrict') line += `->restrictOnDelete()`;
         } else {
-            // Default behavior if not specified. Usually cascade for generated schemas is helpful, 
-            // but let's stick to the sidebar default which is 'cascade' if touched. 
-            // If untouched, maybe default to cascade to match previous behavior.
             line += `->cascadeOnDelete()`;
         }
         
@@ -116,7 +124,6 @@ const generateColumnLine = (
       if (inferredTable !== col.name) {
           line += `->constrained('${inferredTable}')`;
           
-          // Apply same logic for inferred relationships
           if (col.onDelete === 'cascade' || !col.onDelete) line += `->cascadeOnDelete()`;
           else if (col.onDelete === 'set null') line += `->nullOnDelete()`;
           else if (col.onDelete === 'restrict') line += `->restrictOnDelete()`;
@@ -142,7 +149,7 @@ export const generateModel = (
     const modelName = toPascalCase(table.name).replace(/s$/, ''); // singularize
     
     const fillableCols = table.columns
-        .filter(c => c.type !== LaravelColumnType.ID)
+        .filter(c => c.type !== LaravelColumnType.ID && c.type !== LaravelColumnType.MORPHS)
         .map(c => `'${c.name}'`)
         .join(',\n        ');
 
@@ -161,6 +168,9 @@ export const generateModel = (
         const methodName = col ? col.name.replace(/_id$/, '') : targetModel.toLowerCase();
 
         return `
+    /**
+     * Get the ${methodName} that owns the ${modelName}.
+     */
     public function ${toCamelCase(methodName)}(): BelongsTo
     {
         return $this->belongsTo(${targetModel}::class);
@@ -182,8 +192,12 @@ export const generateModel = (
         const finalMethodName = isOneToOne ? methodName.replace(/s$/, '') : methodName;
         const relationClass = isOneToOne ? 'HasOne' : 'HasMany';
         const relationMethod = isOneToOne ? 'hasOne' : 'hasMany';
+        const description = isOneToOne ? `Get the ${sourceModel.toLowerCase()} associated with the ${modelName}.` : `Get the ${sourceModel.toLowerCase()}s for the ${modelName}.`;
 
         return `
+    /**
+     * ${description}
+     */
     public function ${finalMethodName}(): ${relationClass}
     {
         return $this->${relationMethod}(${sourceModel}::class);
@@ -208,12 +222,27 @@ class ${modelName} extends Model
 {
     use HasFactory${table.softDeletes ? ', SoftDeletes' : ''};
 
+    /**
+     * The table associated with the model.
+     *
+     * @var string
+     */
     protected $table = '${table.name}';
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         ${fillableCols}
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         ${casts}
     ];
@@ -260,12 +289,13 @@ namespace App\\Http\\Controllers;
 
 use App\\Models\\${modelName};
 use Illuminate\\Http\\Request;
+use Illuminate\\Support\\Facades\\DB;
 
 class ${modelName}Controller extends Controller
 {
     public function index()
     {
-        return ${modelName}::all();
+        return ${modelName}::paginate();
     }
 
     public function store(Request $request)
@@ -274,7 +304,9 @@ class ${modelName}Controller extends Controller
             // TODO: Add validation rules
         ]);
 
-        return ${modelName}::create($validated);
+        return DB::transaction(function () use ($validated) {
+            return ${modelName}::create($validated);
+        });
     }
 
     public function show(${modelName} $${table.name.replace(/s$/,'')})
@@ -288,16 +320,18 @@ class ${modelName}Controller extends Controller
             // TODO: Add validation rules
         ]);
 
-        $${table.name.replace(/s$/,'')}->update($validated);
-
-        return $${table.name.replace(/s$/,'')};
+        return DB::transaction(function () use ($${table.name.replace(/s$/,'')}, $validated) {
+            $${table.name.replace(/s$/,'')}->update($validated);
+            return $${table.name.replace(/s$/,'')};
+        });
     }
 
     public function destroy(${modelName} $${table.name.replace(/s$/,'')})
     {
-        $${table.name.replace(/s$/,'')}->delete();
-
-        return response()->noContent();
+        return DB::transaction(function () use ($${table.name.replace(/s$/,'')}) {
+            $${table.name.replace(/s$/,'')}->delete();
+            return response()->noContent();
+        });
     }
 }
 `;

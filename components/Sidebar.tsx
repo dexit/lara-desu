@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle, Link2, AlertCircle } from 'lucide-react';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, HelpCircle, Link2, AlertCircle, List } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
@@ -182,6 +183,21 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                                             </select>
                                         </div>
                                     </div>
+
+                                    {col.type === LaravelColumnType.ENUM && (
+                                        <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-700">
+                                            <label className="flex items-center gap-1 text-[10px] uppercase text-slate-500 font-semibold mb-1">
+                                                <List size={10} /> Enum Values (comma separated)
+                                            </label>
+                                            <input 
+                                                type="text"
+                                                value={col.enumValues || ''}
+                                                onChange={(e) => handleUpdateColumn(col.id, { enumValues: e.target.value })}
+                                                placeholder="pending, active, suspended"
+                                                className="w-full px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-xs focus:ring-1 focus:ring-indigo-500 dark:text-white font-mono"
+                                            />
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-2">
                                          <div>
