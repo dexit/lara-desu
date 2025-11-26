@@ -17,6 +17,12 @@ const toCamelCase = (str: string) => {
 
 const getModelName = (tableName: string) => toPascalCase(tableName);
 
+const PHP_HEADER = `<?php
+
+declare(strict_types=1);
+
+`;
+
 // --- Migration Generator ---
 
 export const generateMigration = (
@@ -43,9 +49,7 @@ export const generateMigration = (
   const softDeletes = table.softDeletes ? `            $table->softDeletes();\n` : '';
   const timestamps = table.timestamps ? `            $table->timestamps();\n` : '';
 
-  return `<?php
-
-use Illuminate\\Database\\Migrations\\Migration;
+  return `${PHP_HEADER}use Illuminate\\Database\\Migrations\\Migration;
 use Illuminate\\Database\\Schema\\Blueprint;
 use Illuminate\\Support\\Facades\\Schema;
 
@@ -115,10 +119,11 @@ const generateColumnLine = (
   // Relationship Constraint
   if (edge) {
     const targetNode = allNodes.find(n => n.id === edge.target);
-    const cleanTargetHandle = edge.targetHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
-    const targetCol = targetNode?.data.columns.find(c => c.id === cleanTargetHandle);
-    
     if (targetNode) {
+        // Attempt to find the specific column connected to
+        const cleanTargetHandle = edge.targetHandle?.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
+        const targetCol = targetNode.data.columns.find(c => c.id === cleanTargetHandle);
+
         if (targetCol && targetCol.name !== 'id') {
              line += `->constrained(table: '${targetNode.data.name}', column: '${targetCol.name}')`;
         } else {
@@ -131,6 +136,7 @@ const generateColumnLine = (
             else if (col.onDelete === 'set null') line += `->nullOnDelete()`;
             else if (col.onDelete === 'restrict') line += `->restrictOnDelete()`;
         } else {
+            // Default to cascade if implied by relationship tool
             line += `->cascadeOnDelete()`;
         }
         
@@ -142,7 +148,7 @@ const generateColumnLine = (
         }
     }
   } else if (col.type === LaravelColumnType.FOREIGN_ID) {
-      // Auto-infer
+      // Auto-infer if not connected explicitly
       const inferredTable = col.name.replace(/_id$/, 's'); 
       if (inferredTable !== col.name) {
           line += `->constrained('${inferredTable}')`;
@@ -234,9 +240,7 @@ export const generateModel = (
     // Add HasOne import if needed
     const hasOneImport = hasManyMethods.includes('HasOne') ? 'use Illuminate\\Database\\Eloquent\\Relations\\HasOne;' : '';
 
-    return `<?php
-
-namespace App\\Models;
+    return `${PHP_HEADER}namespace App\\Models;
 
 use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;
 use Illuminate\\Database\\Eloquent\\Model;
@@ -286,9 +290,7 @@ export const generateSeeder = (node: Node<TableData>): string => {
     const table = node.data;
     const modelName = getModelName(table.name);
     
-    return `<?php
-
-namespace Database\\Seeders;
+    return `${PHP_HEADER}namespace Database\\Seeders;
 
 use Illuminate\\Database\\Seeder;
 use App\\Models\\${modelName};
@@ -337,9 +339,7 @@ export const generateFactory = (node: Node<TableData>): string => {
              return `'${c.name}' => $this->faker->${fakerMethod}`;
         }).join(',\n            ');
 
-    return `<?php
-
-namespace Database\\Factories;
+    return `${PHP_HEADER}namespace Database\\Factories;
 
 use Illuminate\\Database\\Eloquent\\Factories\\Factory;
 
@@ -408,9 +408,7 @@ export const generateStoreRequest = (node: Node<TableData>): string => {
              return `'${c.name}' => [${ruleString}]`;
         }).join(',\n            ');
 
-    return `<?php
-
-namespace App\\Http\\Requests;
+    return `${PHP_HEADER}namespace App\\Http\\Requests;
 
 use Illuminate\\Foundation\\Http\\FormRequest;
 
@@ -456,9 +454,7 @@ export const generateUpdateRequest = (node: Node<TableData>): string => {
              return `'${c.name}' => [${ruleString}]`;
         }).join(',\n            ');
 
-    return `<?php
-
-namespace App\\Http\\Requests;
+    return `${PHP_HEADER}namespace App\\Http\\Requests;
 
 use Illuminate\\Foundation\\Http\\FormRequest;
 
@@ -496,9 +492,7 @@ export const generateResource = (node: Node<TableData>): string => {
         return `'${c.name}' => $this->${c.name}`;
     }).join(',\n            ');
 
-    return `<?php
-
-namespace App\\Http\\Resources;
+    return `${PHP_HEADER}namespace App\\Http\\Resources;
 
 use Illuminate\\Http\\Request;
 use Illuminate\\Http\\Resources\\Json\\JsonResource;
@@ -529,9 +523,7 @@ export const generateApiRoutes = (nodes: Node<TableData>[]): string => {
         return `Route::apiResource('${node.data.name.replace(/_/g, '-')}', App\\Http\\Controllers\\${modelName}Controller::class);`;
     }).join('\n');
 
-    return `<?php
-
-use Illuminate\\Support\\Facades\\Route;
+    return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -573,24 +565,24 @@ export const generateController = (node: Node<TableData>): string => {
     const table = node.data;
     const modelName = getModelName(table.name);
     
-    return `<?php
-
-namespace App\\Http\\Controllers;
+    return `${PHP_HEADER}namespace App\\Http\\Controllers;
 
 use App\\Models\\${modelName};
 use App\\Http\\Requests\\Store${modelName}Request;
 use App\\Http\\Requests\\Update${modelName}Request;
 use App\\Http\\Resources\\${modelName}Resource;
 use Illuminate\\Support\\Facades\\DB;
+use Illuminate\\Http\\Resources\\Json\\AnonymousResourceCollection;
+use Illuminate\\Http\\Response;
 
 class ${modelName}Controller extends Controller
 {
-    public function index()
+    public function index(): AnonymousResourceCollection
     {
         return ${modelName}Resource::collection(${modelName}::paginate());
     }
 
-    public function store(Store${modelName}Request $request)
+    public function store(Store${modelName}Request $request): ${modelName}Resource
     {
         return DB::transaction(function () use ($request) {
             $model = ${modelName}::create($request->validated());
@@ -598,12 +590,12 @@ class ${modelName}Controller extends Controller
         });
     }
 
-    public function show(${modelName} $${table.name.replace(/s$/,'')})
+    public function show(${modelName} $${table.name.replace(/s$/,'')}): ${modelName}Resource
     {
         return new ${modelName}Resource($${table.name.replace(/s$/,'')});
     }
 
-    public function update(Update${modelName}Request $request, ${modelName} $${table.name.replace(/s$/,'')})
+    public function update(Update${modelName}Request $request, ${modelName} $${table.name.replace(/s$/,'')}): ${modelName}Resource
     {
         return DB::transaction(function () use ($${table.name.replace(/s$/,'')}, $request) {
             $${table.name.replace(/s$/,'')}->update($request->validated());
@@ -611,12 +603,13 @@ class ${modelName}Controller extends Controller
         });
     }
 
-    public function destroy(${modelName} $${table.name.replace(/s$/,'')})
+    public function destroy(${modelName} $${table.name.replace(/s$/,'')}): Response
     {
-        return DB::transaction(function () use ($${table.name.replace(/s$/,'')}) {
+        DB::transaction(function () use ($${table.name.replace(/s$/,'')}) {
             $${table.name.replace(/s$/,'')}->delete();
-            return response()->noContent();
         });
+        
+        return response()->noContent();
     }
 }
 `;
@@ -726,3 +719,35 @@ const getCastType = (type: string) => {
         default: return 'string';
     }
 }
+
+// --- ZIP Structure Helper ---
+export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[]) => {
+    const files: Record<string, string> = {};
+    
+    // Config
+    files['composer.json'] = generateComposerJson(nodes);
+    files['README.md'] = generateReadme(nodes);
+    files['routes/api.php'] = generateApiRoutes(nodes);
+    
+    // Code
+    nodes.forEach(node => {
+        const modelName = getModelName(node.data.name);
+        
+        // Migrations: Add timestamp prefix for valid migration order
+        const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+        // Add random seconds to ensure uniqueness in zip
+        const uniqueTs = parseInt(timestamp) + Math.floor(Math.random() * 1000);
+        files[`database/migrations/${uniqueTs}_create_${node.data.name}_table.php`] = generateMigration(node, nodes, edges);
+        
+        files[`app/Models/${modelName}.php`] = generateModel(node, nodes, edges);
+        files[`app/Http/Controllers/${modelName}Controller.php`] = generateController(node);
+        files[`app/Http/Requests/Store${modelName}Request.php`] = generateStoreRequest(node);
+        files[`app/Http/Requests/Update${modelName}Request.php`] = generateUpdateRequest(node);
+        files[`app/Http/Resources/${modelName}Resource.php`] = generateResource(node);
+        files[`database/seeders/${modelName}Seeder.php`] = generateSeeder(node);
+        files[`database/factories/${modelName}Factory.php`] = generateFactory(node);
+        files[`resources/js/types/${modelName}.ts`] = generateTypeScript(node);
+    });
+
+    return files;
+};

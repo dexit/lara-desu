@@ -39,11 +39,26 @@ export default function ContextMenu({
       action();
       onClose();
   }, [onClose]);
+  
+  // Adjust position to stay in viewport
+  const style = {
+      top,
+      left,
+  };
+  
+  // If too close to bottom, move up
+  if (window.innerHeight - top < 200) {
+      style.top = top - 150;
+  }
+  // If too close to right, move left
+  if (window.innerWidth - left < 200) {
+      style.left = left - 150;
+  }
 
   return (
     <div
       ref={menuRef}
-      style={{ top, left }}
+      style={style}
       className="absolute z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl rounded-lg overflow-hidden min-w-[180px] py-1 animate-in fade-in zoom-in-95 duration-100 font-sans"
     >
         {type === 'node' && targetId && (
@@ -63,12 +78,6 @@ export default function ContextMenu({
                 >
                     <Copy size={16} className="text-blue-500" /> Duplicate
                 </button>
-                 {/* <button
-                    onClick={() => handleAction(() => onStartRelation?.(targetId))}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-3 transition-colors"
-                >
-                    <Link size={16} className="text-emerald-500" /> Create Relationship
-                </button> */}
                 
                 <div className="h-px bg-slate-200 dark:bg-slate-700 my-1" />
                 

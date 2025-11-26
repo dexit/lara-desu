@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { TableData, LaravelColumnType, AiSettings } from "../types";
 
@@ -43,12 +42,13 @@ export const suggestSchema = async (prompt: string, settings: AiSettings): Promi
     
     Task: Design a normalized database schema based on the user's requirements.
     
-    Rules:
-    1. Use 'snake_case' for table and column names.
-    2. Always include 'id' (primary key) implicitly (do not list it unless it's non-standard).
+    Strict Rules:
+    1. Use 'snake_case' for table and column names. Table names must be PLURAL.
+    2. Always include 'id' (primary key) implicitly.
     3. Use 'foreignId' for relationships. Detect relationships automatically (e.g., user_id -> users).
-    4. For polymorphic relations, suggest a 'morphs' type column or necessary columns.
-    5. Optimize data types (use 'tinyInteger' for small enums, 'json' for flexible data).
+    4. For polymorphic relations, suggest a 'morphs' type column.
+    5. Optimize data types (use 'tinyInteger' for small enums, 'json' for flexible data, 'ulid' if distributed).
+    6. If a relationship is Many-to-Many, create the Pivot Table explicitly (e.g., role_user).
     
     Return ONLY valid JSON data matching the schema.
   `;
@@ -92,8 +92,9 @@ export const suggestSchemaFromJson = async (reqJson: string, resJson: string, se
 
     const systemInstruction = `
     You are an API Integration Specialist and Database Expert.
-    Convert JSON payloads into a normalized Laravel Schema.
+    Convert JSON payloads into a normalized Laravel 11 Schema.
     Target Database: ${settings.database}.
+    Ensure all tables have primary keys and proper foreign keys.
     `;
 
     const response = await ai.models.generateContent({

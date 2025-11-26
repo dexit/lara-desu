@@ -95,9 +95,14 @@ export interface AiSettings {
 
 export const AVAILABLE_MODELS = [
     { 
-        id: 'gemini-2.5-flash', 
+        id: 'gemini-flash-latest', 
         name: 'Gemini 2.5 Flash', 
         description: 'Optimized for speed and efficiency. Best for standard schema generation and rapid prototyping.' 
+    },
+    { 
+        id: 'gemini-2.5-pro', 
+        name: 'Gemini 2.5 Pro', 
+        description: 'Highest reasoning capability. Ideal for complex domains, intricate relationships, and advanced logic.' 
     },
     { 
         id: 'gemini-3-pro-preview', 

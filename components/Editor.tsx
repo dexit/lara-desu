@@ -14,6 +14,8 @@ import ReactFlow, {
   MarkerType,
   ConnectionMode,
 } from 'reactflow';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import TableNode from './TableNode';
 import Sidebar from './Sidebar';
 import ContextMenu from './ContextMenu';
@@ -33,11 +35,12 @@ import {
     generateTypeScript,
     generateApiRoutes,
     generateComposerJson,
-    generateReadme
+    generateReadme,
+    prepareZipData
 } from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
 import { getLayoutedElements } from '../services/layout';
-import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers } from 'lucide-react';
+import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers, FileArchive } from 'lucide-react';
 
 const nodeTypes = {
   table: TableNode,
@@ -156,7 +159,7 @@ export default function Editor() {
                   type: LaravelColumnType.FOREIGN_ID,
                   nullable: false,
                   unique: false,
-                  onDelete: 'cascade'
+                  onDelete: config.cascade ? 'cascade' : 'restrict'
               };
               
               setNodes(nds => nds.map(n => {
@@ -199,7 +202,7 @@ export default function Editor() {
                    type: LaravelColumnType.FOREIGN_ID,
                    nullable: true,
                    unique: true, 
-                   onDelete: 'cascade'
+                   onDelete: config.cascade ? 'cascade' : 'restrict'
                };
                
                setNodes(nds => nds.map(n => {
@@ -552,6 +555,7 @@ export default function Editor() {
       }
   };
 
+  // Export JSON (Project State)
   const exportProject = () => {
     const data = { nodes, edges };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -560,6 +564,19 @@ export default function Editor() {
     a.href = url;
     a.download = 'lara-schema.json';
     a.click();
+  };
+  
+  // Export ZIP (PHP Code)
+  const handleDownloadCode = async () => {
+      const zip = new JSZip();
+      const files = prepareZipData(nodes, edges);
+      
+      Object.entries(files).forEach(([path, content]) => {
+          zip.file(path, content);
+      });
+      
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, 'laravel-schema.zip');
   };
   
   const importProject = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -752,14 +769,23 @@ export default function Editor() {
                     >
                         <Code size={20} />
                     </button>
+                    
+                     <button 
+                        onClick={handleDownloadCode}
+                        className="p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors"
+                        title="Export PHP Code (ZIP)"
+                    >
+                        <FileArchive size={20} />
+                    </button>
+
                      <button 
                         onClick={exportProject}
                         className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Export JSON"
+                        title="Export JSON State"
                     >
                         <Download size={20} />
                     </button>
-                     <label className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors" title="Import JSON">
+                     <label className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors" title="Import JSON State">
                         <span className="sr-only">Import</span>
                         <Share2 size={20} className="transform rotate-90" />
                         <input type="file" className="hidden" accept=".json" onChange={importProject} />
