@@ -26,18 +26,37 @@ export interface TableData {
   generatePolicy?: boolean;
   generateObserver?: boolean;
   generateAdminUI?: boolean;
+  generateSlug?: boolean; // New for Sluggable
 }
 
 export interface ProjectSettings {
+  authentication: {
+    breeze: boolean;
+  };
   packages: {
     sanctum: boolean;
     spatiePermissions: boolean;
+    spatieActivityLog: boolean;
+    spatieMediaLibrary: boolean;
+    spatieBackup: boolean;
+    spatieSluggable: boolean;
+    spatieWebhookClient: boolean;
+    spatieWebhookServer: boolean;
+    spatieHealth: boolean;
   };
 }
 
 export const AVAILABLE_PACKAGES = {
-  SANCTUM: { id: 'sanctum', name: 'Laravel Sanctum', description: 'API token authentication.' },
-  SPATIE_PERMISSIONS: { id: 'spatiePermissions', name: 'Spatie Permissions', description: 'Role and permission management.' },
+  BREEZE: { id: 'breeze', name: 'Laravel Breeze', description: 'Complete authentication scaffolding (login, registration).', category: 'Authentication' },
+  SANCTUM: { id: 'sanctum', name: 'Laravel Sanctum', description: 'API token authentication.', category: 'Packages' },
+  SPATIE_PERMISSIONS: { id: 'spatiePermissions', name: 'Spatie Permissions', description: 'Associate users with roles and permissions.', category: 'Packages' },
+  SPATIE_ACTIVITYLOG: { id: 'spatieActivityLog', name: 'Spatie Activity Log', description: 'Log activity inside your app.', category: 'Packages' },
+  SPATIE_MEDIALIBRARY: { id: 'spatieMediaLibrary', name: 'Spatie Media Library', description: 'Associate files with Eloquent models.', category: 'Packages' },
+  SPATIE_BACKUP: { id: 'spatieBackup', name: 'Spatie Backup', description: 'Backup your application files and database.', category: 'Packages' },
+  SPATIE_SLUGGABLE: { id: 'spatieSluggable', name: 'Spatie Sluggable', description: 'Create SEO-friendly slugs for models.', category: 'Packages' },
+  SPATIE_HEALTH: { id: 'spatieHealth', name: 'Spatie Health', description: 'Monitor the health of your application.', category: 'Packages' },
+  SPATIE_WEBHOOK_CLIENT: { id: 'spatieWebhookClient', name: 'Spatie Webhook Client', description: 'Receive webhooks in your app.', category: 'Packages' },
+  SPATIE_WEBHOOK_SERVER: { id: 'spatieWebhookServer', name: 'Spatie Webhook Server', description: 'Send webhooks from your app.', category: 'Packages' },
 };
 
 

@@ -59,9 +59,19 @@ export default function Editor() {
   const ref = useRef<HTMLDivElement>(null);
   
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({
+      authentication: {
+          breeze: true,
+      },
       packages: {
           sanctum: true,
           spatiePermissions: false,
+          spatieActivityLog: false,
+          spatieMediaLibrary: false,
+          spatieBackup: false,
+          spatieSluggable: false,
+          spatieHealth: false,
+          spatieWebhookClient: false,
+          spatieWebhookServer: false,
       }
   });
 
@@ -472,6 +482,15 @@ export default function Editor() {
             handleAddSpatieTables();
         }
     }
+    // If breeze was just turned on, and there's no users table, add core tables
+    if (newSettings.authentication.breeze && !projectSettings.authentication.breeze) {
+        const userTableExists = nodes.some(n => n.data.name === 'users');
+        if (!userTableExists) {
+            if(confirm("Laravel Breeze enabled. Do you want to add the standard authentication tables (users, password_resets) to the canvas?")) {
+                handleAddCoreTables();
+            }
+        }
+    }
     setProjectSettings(newSettings);
   };
 
@@ -677,6 +696,7 @@ export default function Editor() {
       <ReactFlowProvider>
         <Sidebar 
             selectedNode={selectedNode} 
+            projectSettings={projectSettings} // Pass settings to sidebar
             onUpdateTable={handleUpdateTable}
             onClose={() => setSelectedTableId(null)}
         />

@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { Node } from 'reactflow';
-import { TableData, LaravelColumnType, Column } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette, Shield, Eye, LayoutGrid } from 'lucide-react';
+import { TableData, LaravelColumnType, Column, ProjectSettings } from '../types';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette, Shield, Eye, LayoutGrid, Type } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
+  projectSettings: ProjectSettings; // Receive project settings
   onUpdateTable: (id: string, data: Partial<TableData>) => void;
   onClose: () => void;
 }
 
-export default function Sidebar({ selectedNode, onUpdateTable, onClose }: SidebarProps) {
+export default function Sidebar({ selectedNode, projectSettings, onUpdateTable, onClose }: SidebarProps) {
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
 
   if (!selectedNode) return null;
@@ -45,7 +46,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
     onUpdateTable(selectedNode.id, { columns: data.columns.filter(c => c.id !== colId) });
   };
 
-  const handleOptionToggle = (key: 'timestamps' | 'softDeletes' | 'generatePolicy' | 'generateObserver' | 'generateAdminUI') => {
+  const handleOptionToggle = (key: 'timestamps' | 'softDeletes' | 'generatePolicy' | 'generateObserver' | 'generateAdminUI' | 'generateSlug') => {
       onUpdateTable(selectedNode.id, { [key]: !data[key] });
   }
 
@@ -207,6 +208,18 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                             className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-900" 
                         />
                     </label>
+                    {projectSettings.packages.spatieSluggable && (
+                        <label className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-md">
+                            <Type size={16} className="text-pink-500" />
+                            <span className="flex-1">Generate Slug</span>
+                            <input 
+                                type="checkbox" 
+                                checked={!!data.generateSlug} 
+                                onChange={() => handleOptionToggle('generateSlug')} 
+                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-900" 
+                            />
+                        </label>
+                    )}
                  </div>
             </div>
 

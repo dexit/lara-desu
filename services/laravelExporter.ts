@@ -186,22 +186,40 @@ export const generateModel = (
     const table = node.data;
     const modelName = getModelName(table.name);
     
-    // Conditional Imports & Traits for User model
+    // Conditional Imports & Traits
     const isUser = table.name === 'users';
     let uses = [ 'use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;' ];
     let traits = [ 'HasFactory' ];
+    let interfaces = [];
     
     if (table.softDeletes) {
         uses.push('use Illuminate\\Database\\Eloquent\\SoftDeletes;');
         traits.push('SoftDeletes');
     }
-    if (isUser && projectSettings.packages.sanctum) {
-        uses.push('use Laravel\\Sanctum\\HasApiTokens;');
-        traits.push('HasApiTokens');
+    if (projectSettings.authentication.breeze || projectSettings.packages.sanctum) {
+        if(isUser) {
+          uses.push('use Laravel\\Sanctum\\HasApiTokens;');
+          traits.push('HasApiTokens');
+        }
     }
-    if (isUser && projectSettings.packages.spatiePermissions) {
+    if (projectSettings.packages.spatiePermissions && isUser) {
         uses.push('use Spatie\\Permission\\Traits\\HasRoles;');
         traits.push('HasRoles');
+    }
+    if (projectSettings.packages.spatieSluggable && table.generateSlug) {
+        uses.push('use Spatie\\Sluggable\\HasSlug;');
+        uses.push('use Spatie\\Sluggable\\SlugOptions;');
+        traits.push('HasSlug');
+    }
+    if (projectSettings.packages.spatieActivityLog) {
+        uses.push('use Spatie\\Activitylog\\Traits\\LogsActivity;');
+        traits.push('LogsActivity');
+    }
+     if (projectSettings.packages.spatieMediaLibrary) {
+        uses.push('use Spatie\\MediaLibrary\\HasMedia;');
+        uses.push('use Spatie\\MediaLibrary\\InteractsWithMedia;');
+        interfaces.push('HasMedia');
+        traits.push('InteractsWithMedia');
     }
     
     // Base Eloquent Model, for User it's Authenticatable
@@ -272,11 +290,23 @@ export const generateModel = (
     }`;
     }).join('\n');
     
+    // Sluggable method
+    const sluggableMethod = (projectSettings.packages.spatieSluggable && table.generateSlug) ? `
+    /**
+     * Get the options for generating the slug.
+     */
+    public function getSlugOptions(): SlugOptions
+    {
+        return SlugOptions::create()
+            ->generateSlugsFrom('name') // Assumes a 'name' or 'title' column exists
+            ->saveSlugsTo('slug');
+    }` : '';
+    
     // Add relation imports if needed
     if (belongsToMethods.length > 0) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\BelongsTo;');
     if (hasManyMethods.length > 0) {
-      if (hasManyMethods.includes('HasOne')) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasOne;');
-      if (hasManyMethods.includes('HasMany')) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasMany;');
+      if (hasManyMethods.some(m => m.includes('HasOne'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasOne;');
+      if (hasManyMethods.some(m => m.includes('HasMany'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasMany;');
     }
     
     // Dedupe and sort uses
@@ -286,7 +316,7 @@ export const generateModel = (
 
 ${uniqueUses}
 
-class ${modelName} extends ${extendsClass}
+class ${modelName} extends ${extendsClass}${interfaces.length > 0 ? ' implements ' + interfaces.join(', ') : ''}
 {
     /** @use HasFactory<\\Database\\Factories\\${modelName}Factory> */
     use ${traits.join(', ')};
@@ -315,6 +345,7 @@ class ${modelName} extends ${extendsClass}
     protected $casts = [
         ${casts}
     ];
+${sluggableMethod}
 ${belongsToMethods}
 ${hasManyMethods}
 }
@@ -835,20 +866,54 @@ ${observers}
 
 // --- Composer Generator ---
 export const generateComposerJson = (projectSettings: ProjectSettings): string => {
-    const requirePackages = {
+    const requirePackages: Record<string, string> = {
         "php": "^8.2",
         "laravel/framework": "^11.0",
         "laravel/tinker": "^2.9",
         "doctrine/dbal": "^3.0"
     };
+    
+    const requireDevPackages: Record<string, string> = {
+        "fakerphp/faker": "^1.23",
+        "laravel/pint": "^1.13",
+        "laravel/sail": "^1.26",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.0",
+        "phpunit/phpunit": "^10.5",
+        "spatie/laravel-ignition": "^2.4"
+    };
+
+    if (projectSettings.authentication.breeze) {
+        requireDevPackages["laravel/breeze"] = "^2.0";
+    }
     if(projectSettings.packages.sanctum) {
-        // @ts-ignore
         requirePackages["laravel/sanctum"] = "^4.0";
     }
     if(projectSettings.packages.spatiePermissions) {
-        // @ts-ignore
         requirePackages["spatie/laravel-permission"] = "^6.7";
     }
+    if (projectSettings.packages.spatieActivityLog) {
+        requirePackages["spatie/laravel-activitylog"] = "^4.0";
+    }
+    if (projectSettings.packages.spatieMediaLibrary) {
+        requirePackages["spatie/laravel-medialibrary"] = "^11.0";
+    }
+    if (projectSettings.packages.spatieBackup) {
+        requirePackages["spatie/laravel-backup"] = "^8.0";
+    }
+    if (projectSettings.packages.spatieSluggable) {
+        requirePackages["spatie/laravel-sluggable"] = "^3.5";
+    }
+    if (projectSettings.packages.spatieHealth) {
+        requirePackages["spatie/laravel-health"] = "^1.0";
+    }
+    if (projectSettings.packages.spatieWebhookClient) {
+        requirePackages["spatie/laravel-webhook-client"] = "^3.0";
+    }
+     if (projectSettings.packages.spatieWebhookServer) {
+        requirePackages["spatie/laravel-webhook-server"] = "^3.0";
+    }
+
 
     return JSON.stringify({
         "name": "laravel/laravel",
@@ -857,15 +922,7 @@ export const generateComposerJson = (projectSettings: ProjectSettings): string =
         "keywords": ["laravel", "framework"],
         "license": "MIT",
         "require": requirePackages,
-        "require-dev": {
-            "fakerphp/faker": "^1.23",
-            "laravel/pint": "^1.13",
-            "laravel/sail": "^1.26",
-            "mockery/mockery": "^1.6",
-            "nunomaduro/collision": "^8.0",
-            "phpunit/phpunit": "^10.5",
-            "spatie/laravel-ignition": "^2.4"
-        },
+        "require-dev": requireDevPackages,
         "autoload": {
             "psr-4": {
                 "App\\": "app/",
@@ -906,8 +963,27 @@ export const generateComposerJson = (projectSettings: ProjectSettings): string =
     }, null, 4);
 }
 
-export const generateReadme = (nodes: Node<TableData>[]): string => {
+export const generateReadme = (nodes: Node<TableData>[], projectSettings: ProjectSettings): string => {
     const tableList = nodes.map(n => `- ${n.data.name}`).join('\n');
+    
+    let installSteps = `1. Clone the repository
+2. Run \`composer install\`
+3. Create your \`.env\` file (\`cp .env.example .env\`) and configure your database.
+4. Run \`php artisan key:generate\``;
+
+    if (projectSettings.authentication.breeze) {
+        installSteps += `
+5. Run \`php artisan breeze:install\` (select Blade, No dark mode, Pest)
+6. Run \`npm install && npm run dev\``;
+    }
+    
+    installSteps += `
+7. Run \`php artisan migrate --seed\``;
+    
+    const adminPanelNote = nodes.some(n => n.data.generateAdminUI) 
+        ? `8. To run the admin panel, run \`php artisan serve\` and visit \`/admin\`.` 
+        : '';
+        
     return `# Laravel Application Schema
 
 Generated by LaraSchema Architect.
@@ -920,12 +996,8 @@ ${tableList}
 
 ## Installation
 
-1. Clone the repository
-2. Run \`composer install\`
-3. Create your \`.env\` file (\`cp .env.example .env\`) and configure your database.
-4. Run \`php artisan key:generate\`
-5. Run \`php artisan migrate --seed\`
-6. To run the admin panel, run \`php artisan serve\` and visit \`/admin\`.
+${installSteps}
+${adminPanelNote}
 
 ## Features
 
@@ -945,8 +1017,12 @@ export const generatePackageJson = (): string => {
         "build": "vite build"
     },
     "devDependencies": {
+        "@tailwindcss/forms": "^0.5.2",
+        "alpinejs": "^3.4.2",
+        "autoprefixer": "^10.4.2",
         "axios": "^1.6.4",
         "laravel-vite-plugin": "^1.0",
+        "postcss": "^8.4.31",
         "tailwindcss": "^3.4.1",
         "vite": "^5.0"
     }
@@ -1030,7 +1106,10 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // You can directly call factories here:
-        // ${seederCalls}
+        // \\App\\Models\\User::factory()->create([
+        //     'name' => 'Test User',
+        //     'email' => 'test@example.com',
+        // ]);
 
         // Or, for better organization, call individual seeder classes:
         $this->call([
@@ -1072,13 +1151,15 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::prefix('admin')->middleware('web')->group(function () {
+Route::prefix('admin')->middleware(['web', 'auth'])->group(function () {
     Route::get('/', function() {
-        return "Admin Dashboard"; // Placeholder
+        return view('admin.dashboard');
     })->name('admin.dashboard');
     
     ${routes}
 });
+
+require __DIR__.'/auth.php';
 `;
 };
 
@@ -1156,14 +1237,18 @@ ${relatedModelFetches}
 };
 
 const generateViewLayout = (nodes: Node<TableData>[]): string => `<!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <title>{{ config('app.name', 'Laravel') }}</title>
+
+    <!-- Scripts -->
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="font-sans antialiased bg-slate-50 text-slate-800">
     <div class="flex h-screen">
         @include('admin.partials._nav')
         <main class="flex-1 p-8 overflow-y-auto">
@@ -1189,9 +1274,9 @@ const generateViewNav = (nodes: Node<TableData>[]): string => {
                 </a>`;
     }).join('\n');
 
-    return `<aside class="w-64 bg-slate-100 border-r border-slate-200 p-4">
+    return `<aside class="w-64 bg-slate-100 border-r border-slate-200 p-4 flex flex-col">
     <h1 class="text-xl font-bold mb-6">Admin Panel</h1>
-    <nav class="space-y-2">
+    <nav class="space-y-2 flex-1">
         <a href="{{ route('admin.dashboard') }}" class="block px-4 py-2 text-sm rounded-md hover:bg-slate-200 {{ request()->is('admin') ? 'bg-slate-300 font-bold' : '' }}">
             Dashboard
         </a>
@@ -1200,6 +1285,18 @@ const generateViewNav = (nodes: Node<TableData>[]): string => {
 ${links}
         </div>
     </nav>
+    <div class="mt-auto">
+         <!-- Authentication -->
+        <form method="POST" action="{{ route('logout') }}">
+            @csrf
+            <a href="{{ route('logout') }}"
+                    onclick="event.preventDefault();
+                                this.closest('form').submit();"
+                    class="block w-full text-left px-4 py-2 text-sm rounded-md text-slate-600 hover:bg-red-100 hover:text-red-700">
+                {{ __('Log Out') }}
+            </a>
+        </form>
+    </div>
 </aside>
 `;
 };
@@ -1357,6 +1454,84 @@ const generateViewFormPartial = (node: Node<TableData>): string => {
 
 // --- END: Web Admin UI Generators ---
 
+// --- START: Package File Generators ---
+const generateMediaLibraryMigration = () => `${PHP_HEADER}use Illuminate\\Database\\Migrations\\Migration;
+use Illuminate\\Database\\Schema\\Blueprint;
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('media', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('model');
+            $table->uuid('uuid')->nullable()->unique();
+            $table->string('collection_name');
+            $table->string('name');
+            $table->string('file_name');
+            $table->string('mime_type')->nullable();
+            $table->string('disk');
+            $table->string('conversions_disk')->nullable();
+            $table->unsignedBigInteger('size');
+            $table->json('manipulations');
+            $table->json('custom_properties');
+            $table->json('generated_conversions');
+            $table->json('responsive_images');
+            $table->unsignedInteger('order_column')->nullable()->index();
+            $table->nullableTimestamps();
+        });
+    }
+};`;
+
+const generateActivityLogMigration = () => `${PHP_HEADER}use Illuminate\\Database\\Migrations\\Migration;
+use Illuminate\\Database\\Schema\\Blueprint;
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('activity_log', function (Blueprint $table) {
+            $table->id();
+            $table->string('log_name')->nullable()->index();
+            $table->text('description');
+            $table->nullableMorphs('subject', 'subject');
+            $table->string('event')->nullable();
+            $table->nullableMorphs('causer', 'causer');
+            $table->json('properties')->nullable();
+            $table->uuid('batch_uuid')->nullable();
+            $table->timestamps();
+        });
+    }
+};`;
+
+const generateHealthServiceProvider = () => `${PHP_HEADER}namespace App\\Providers;
+
+use Illuminate\\Support\\ServiceProvider;
+use Spatie\\Health\\Facades\\Health;
+use Spatie\\Health\\Checks\\Checks\\DatabaseCheck;
+use Spatie\\Health\\Checks\\Checks\\OptimizedAppCheck;
+
+class HealthServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        //
+    }
+
+    public function boot(): void
+    {
+        Health::checks([
+            OptimizedAppCheck::new(),
+            DatabaseCheck::new(),
+        ]);
+    }
+}
+`;
+
+// --- END: Package File Generators ---
+
 
 // --- ZIP Structure Helper ---
 export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectSettings: ProjectSettings) => {
@@ -1366,7 +1541,7 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectS
     // Root project files
     files['composer.json'] = generateComposerJson(projectSettings);
     files['package.json'] = generatePackageJson();
-    files['README.md'] = generateReadme(nodes);
+    files['README.md'] = generateReadme(nodes, projectSettings);
     files['TODO.md'] = generateTodoMd();
     files['GEMINI.md'] = generateGeminiMd();
     files['routes/api.php'] = generateApiRoutes(nodes);
@@ -1385,16 +1560,33 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectS
     if(adminUiNodes.length > 0) {
         files['resources/views/admin/layouts/app.blade.php'] = generateViewLayout(nodes);
         files['resources/views/admin/partials/_nav.blade.php'] = generateViewNav(nodes);
-        // Welcome view placeholder
-        files['resources/views/welcome.blade.php'] = `<h1>Welcome! Go to /admin to see the generated UI.</h1>`;
+        files['resources/views/admin/dashboard.blade.php'] = `@extends('admin.layouts.app')\n\n@section('content')\n    <h1 class="text-2xl font-bold">Welcome to the Admin Dashboard</h1>\n@endsection`;
+        files['resources/views/welcome.blade.php'] = `<h1>Welcome! Go to /login to access the Admin Panel.</h1>`;
     }
 
-    nodes.forEach(node => {
+    // Package-specific files
+    if (projectSettings.packages.spatieMediaLibrary) {
+        const ts = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+        files[`database/migrations/${parseInt(ts) + 1}_create_media_table.php`] = generateMediaLibraryMigration();
+        files['config/media-library.php'] = '<?php return []; // Publish config to customize';
+    }
+    if (projectSettings.packages.spatieActivityLog) {
+         const ts = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+        files[`database/migrations/${parseInt(ts) + 2}_create_activity_log_table.php`] = generateActivityLogMigration();
+    }
+    if (projectSettings.packages.spatieHealth) {
+        files['app/Providers/HealthServiceProvider.php'] = generateHealthServiceProvider();
+    }
+     if (projectSettings.packages.spatieWebhookClient) {
+        files['config/webhook-client.php'] = '<?php return []; // Publish config to customize';
+    }
+
+    nodes.forEach((node, idx) => {
         const modelName = getModelName(node.data.name);
         
         // Migrations
         const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
-        const uniqueTs = parseInt(timestamp) + Math.floor(Math.random() * 1000);
+        const uniqueTs = parseInt(timestamp) + idx * 10;
         files[`database/migrations/${uniqueTs}_create_${node.data.name}_table.php`] = generateMigration(node, nodes, edges);
         
         // Core files
