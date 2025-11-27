@@ -70,4 +70,53 @@ export default function ProjectSettingsModal({ settings, onClose, onSave }: Proj
             <div className="bg-white dark:bg-slate-900 w-full max-w-2xl h-[90vh] max-h-[700px] rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col">
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-slate-800
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <Settings className="text-indigo-500" />
+                        Project Settings
+                    </h3>
+                    <button onClick={onClose} className="p-1 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-white transition-colors">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 flex-1 overflow-y-auto space-y-8">
+                    <div>
+                        <h4 className="font-semibold text-slate-800 dark:text-slate-200 mb-2">Authentication</h4>
+                         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                            Bootstrap your application with a complete authentication system.
+                        </p>
+                        <div className="space-y-3">
+                            {renderPackageOption('BREEZE')}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 className="font-semibold text-slate-800 dark:text-slate-200 mb-2">Spatie Packages</h4>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                            Select from a curated list of the best Spatie packages to include in your project. The required boilerplate will be automatically generated.
+                        </p>
+                        <div className="space-y-3">
+                            {Object.keys(AVAILABLE_PACKAGES)
+                                .filter(key => AVAILABLE_PACKAGES[key as keyof typeof AVAILABLE_PACKAGES].category === 'Packages')
+                                .map(pkgKey => renderPackageOption(pkgKey as keyof typeof AVAILABLE_PACKAGES))
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-950">
+                    <button onClick={onClose} className="px-4 py-2 text-slate-600 dark:text-slate-300 font-medium text-sm hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSave}
+                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm shadow-lg shadow-indigo-500/30 transition-all"
+                    >
+                        Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
