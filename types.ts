@@ -25,6 +25,7 @@ export interface TableData {
   color?: string;
   generatePolicy?: boolean;
   generateObserver?: boolean;
+  generateAdminUI?: boolean;
 }
 
 export interface ProjectSettings {

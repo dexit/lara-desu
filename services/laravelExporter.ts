@@ -15,6 +15,14 @@ const toCamelCase = (str: string) => {
     return str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
 }
 
+const toSpacedWords = (str: string) => {
+    return str
+        .replace(/_/g, ' ')
+        .replace(/([A-Z])/g, ' $1')
+        .trim()
+        .replace(/\b\w/g, char => char.toUpperCase());
+}
+
 const getModelName = (tableName: string) => toPascalCase(tableName);
 
 const PHP_HEADER = `<?php
@@ -549,7 +557,7 @@ class ${modelName}Resource extends JsonResource
 export const generateApiRoutes = (nodes: Node<TableData>[]): string => {
     const routes = nodes.map(node => {
         const modelName = getModelName(node.data.name);
-        return `Route::apiResource('${node.data.name.replace(/_/g, '-')}', App\\Http\\Controllers\\${modelName}Controller::class);`;
+        return `Route::apiResource('${node.data.name.replace(/_/g, '-')}', App\\Http\\Controllers\\Api\\${modelName}Controller::class);`;
     }).join('\n');
 
     return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
@@ -558,11 +566,6 @@ export const generateApiRoutes = (nodes: Node<TableData>[]): string => {
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
 */
 
 ${routes}
@@ -594,13 +597,14 @@ ${fields}
 }
 
 
-// --- Controller Generator (Basic CRUD) ---
-export const generateController = (node: Node<TableData>): string => {
+// --- API Controller Generator (Basic CRUD) ---
+export const generateApiController = (node: Node<TableData>): string => {
     const table = node.data;
     const modelName = getModelName(table.name);
     
-    return `${PHP_HEADER}namespace App\\Http\\Controllers;
+    return `${PHP_HEADER}namespace App\\Http\\Controllers\\Api;
 
+use App\\Http\\Controllers\\Controller;
 use App\\Models\\${modelName};
 use App\\Http\\Requests\\Store${modelName}Request;
 use App\\Http\\Requests\\Update${modelName}Request;
@@ -921,11 +925,13 @@ ${tableList}
 3. Create your \`.env\` file (\`cp .env.example .env\`) and configure your database.
 4. Run \`php artisan key:generate\`
 5. Run \`php artisan migrate --seed\`
+6. To run the admin panel, run \`php artisan serve\` and visit \`/admin\`.
 
 ## Features
 
 - **Models**: Full Eloquent models with strict typing and relationships.
 - **API**: Full REST API controllers and resources with Form Request validation.
+- **Admin Panel**: A complete Blade & TailwindCSS based admin panel for CRUD operations.
 - **Testing**: Includes Factories and a Database Seeder for robust testing and development.
 `;
 }
@@ -1050,9 +1056,312 @@ const getCastType = (type: string) => {
     }
 }
 
+// --- START: Web Admin UI Generators ---
+
+const generateWebRoutes = (nodes: Node<TableData>[]): string => {
+    const adminNodes = nodes.filter(n => n.data.generateAdminUI);
+    const routes = adminNodes.map(node => {
+        const modelName = getModelName(node.data.name);
+        const routeName = node.data.name.replace(/_/g, '-');
+        return `Route::resource('/${routeName}', \\App\\Http\\Controllers\\Web\\${modelName}Controller::class);`;
+    }).join('\n    ');
+
+    return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
+
+Route::get('/', function () {
+    return view('welcome');
+});
+
+Route::prefix('admin')->middleware('web')->group(function () {
+    Route::get('/', function() {
+        return "Admin Dashboard"; // Placeholder
+    })->name('admin.dashboard');
+    
+    ${routes}
+});
+`;
+};
+
+const generateWebController = (node: Node<TableData>, allNodes: Node<TableData>[]): string => {
+    const table = node.data;
+    const modelName = getModelName(table.name);
+    const modelVar = toCamelCase(modelName);
+    const singularVar = table.name.replace(/s$/, '');
+    const resourceName = toSpacedWords(table.name);
+
+    const relatedModels = table.columns
+        .filter(c => c.type === LaravelColumnType.FOREIGN_ID)
+        .map(c => {
+            const relatedTableName = c.name.replace(/_id$/, 's');
+            return {
+                varName: toCamelCase(relatedTableName),
+                modelName: getModelName(relatedTableName)
+            };
+        });
+
+    const compactVarsCreate = relatedModels.map(r => `'${r.varName}'`).join(', ');
+    const compactVarsEdit = relatedModels.length > 0 ? `, ${compactVarsCreate}` : '';
+
+    const relatedModelFetches = relatedModels
+        .map(r => `        $${r.varName} = \\App\\Models\\${r.modelName}::all();`)
+        .join('\n');
+
+    return `${PHP_HEADER}namespace App\\Http\\Controllers\\Web;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\${modelName};
+use App\\Http\\Requests\\Store${modelName}Request;
+use App\\Http\\Requests\\Update${modelName}Request;
+use Illuminate\\Http\\Request;
+
+class ${modelName}Controller extends Controller
+{
+    public function index()
+    {
+        $${table.name} = ${modelName}::paginate(15);
+        return view('admin.${table.name}.index', compact('${table.name}'));
+    }
+
+    public function create()
+    {
+${relatedModelFetches}
+        return view('admin.${table.name}.create', compact(${compactVarsCreate}));
+    }
+
+    public function store(Store${modelName}Request $request)
+    {
+        ${modelName}::create($request->validated());
+        return redirect()->route('admin.${table.name}.index')->with('success', '${resourceName} created successfully.');
+    }
+
+    public function edit(${modelName} $${singularVar})
+    {
+${relatedModelFetches}
+        return view('admin.${table.name}.edit', compact('${singularVar}'${compactVarsEdit}));
+    }
+
+    public function update(Update${modelName}Request $request, ${modelName} $${singularVar})
+    {
+        $${singularVar}->update($request->validated());
+        return redirect()->route('admin.${table.name}.index')->with('success', '${resourceName} updated successfully.');
+    }
+
+    public function destroy(${modelName} $${singularVar})
+    {
+        $${singularVar}->delete();
+        return redirect()->route('admin.${table.name}.index')->with('success', '${resourceName} deleted successfully.');
+    }
+}
+`;
+};
+
+const generateViewLayout = (nodes: Node<TableData>[]): string => `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div class="flex h-screen">
+        @include('admin.partials._nav')
+        <main class="flex-1 p-8 overflow-y-auto">
+            @if(session('success'))
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                    <span class="block sm:inline">{{ session('success') }}</span>
+                </div>
+            @endif
+            @yield('content')
+        </main>
+    </div>
+</body>
+</html>
+`;
+
+const generateViewNav = (nodes: Node<TableData>[]): string => {
+    const adminNodes = nodes.filter(n => n.data.generateAdminUI);
+    const links = adminNodes.map(n => {
+        const title = toSpacedWords(n.data.name);
+        const routeName = n.data.name.replace(/_/g, '-');
+        return `                <a href="{{ route('admin.${n.data.name}.index') }}" class="block px-4 py-2 text-sm rounded-md hover:bg-slate-200 {{ request()->is('admin/${routeName}*') ? 'bg-slate-300 font-bold' : '' }}">
+                    ${title}
+                </a>`;
+    }).join('\n');
+
+    return `<aside class="w-64 bg-slate-100 border-r border-slate-200 p-4">
+    <h1 class="text-xl font-bold mb-6">Admin Panel</h1>
+    <nav class="space-y-2">
+        <a href="{{ route('admin.dashboard') }}" class="block px-4 py-2 text-sm rounded-md hover:bg-slate-200 {{ request()->is('admin') ? 'bg-slate-300 font-bold' : '' }}">
+            Dashboard
+        </a>
+        <div class="pt-4">
+            <h2 class="px-4 text-xs font-bold uppercase text-slate-500 mb-2">Manage</h2>
+${links}
+        </div>
+    </nav>
+</aside>
+`;
+};
+
+const generateViewIndex = (node: Node<TableData>): string => {
+    const { name, columns } = node.data;
+    const resourceTitle = toSpacedWords(name);
+    const singularVar = name.replace(/s$/, '');
+    const headers = columns.filter(c => c.type !== 'text' && c.type !== 'longText' && c.type !== 'json').slice(0, 5); // Show first 5 non-text cols
+    
+    return `@extends('admin.layouts.app')
+
+@section('content')
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">${resourceTitle}</h1>
+        <a href="{{ route('admin.${name}.create') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+            Create New
+        </a>
+    </div>
+
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+        <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50">
+                <tr>
+${headers.map(h => `                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">${toSpacedWords(h.name)}</th>`).join('\n')}
+                    <th scope="col" class="relative px-6 py-3">
+                        <span class="sr-only">Actions</span>
+                    </th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-slate-200">
+                @foreach($${name} as $${singularVar})
+                    <tr>
+${headers.map(h => `                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{{ $${singularVar}->${h.name} }}</td>`).join('\n')}
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <a href="{{ route('admin.${name}.edit', $${singularVar}) }}" class="text-indigo-600 hover:text-indigo-900 mr-4">Edit</a>
+                            <form action="{{ route('admin.${name}.destroy', $${singularVar}) }}" method="POST" class="inline-block" onsubmit="return confirm('Are you sure?');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="text-red-600 hover:text-red-900">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-4">
+        {{ $${name}->links() }}
+    </div>
+@endsection
+`;
+};
+
+const generateViewCreate = (node: Node<TableData>): string => {
+    const resourceTitle = toSpacedWords(node.data.name);
+    return `@extends('admin.layouts.app')
+
+@section('content')
+    <h1 class="text-2xl font-bold mb-6">Create ${resourceTitle}</h1>
+
+    <div class="bg-white shadow-md rounded-lg p-8">
+        <form action="{{ route('admin.${node.data.name}.store') }}" method="POST">
+            @csrf
+            @include('admin.${node.data.name}._form')
+            <div class="mt-6">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+                    Create
+                </button>
+                <a href="{{ route('admin.${node.data.name}.index') }}" class="text-slate-600 hover:text-slate-900 ml-4">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+@endsection
+`;
+};
+
+const generateViewEdit = (node: Node<TableData>): string => {
+    const resourceTitle = toSpacedWords(node.data.name);
+    const singularVar = node.data.name.replace(/s$/, '');
+    return `@extends('admin.layouts.app')
+
+@section('content')
+    <h1 class="text-2xl font-bold mb-6">Edit ${resourceTitle}</h1>
+
+    <div class="bg-white shadow-md rounded-lg p-8">
+        <form action="{{ route('admin.${node.data.name}.update', $${singularVar}) }}" method="POST">
+            @csrf
+            @method('PUT')
+            @include('admin.${node.data.name}._form', ['model' => $${singularVar}])
+            <div class="mt-6">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+                    Update
+                </button>
+                <a href="{{ route('admin.${node.data.name}.index') }}" class="text-slate-600 hover:text-slate-900 ml-4">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+@endsection
+`;
+};
+
+const generateViewFormPartial = (node: Node<TableData>): string => {
+    const formFields = node.data.columns
+        .filter(c => c.type !== LaravelColumnType.ID && c.type !== LaravelColumnType.TIMESTAMP && !c.name.endsWith('_at'))
+        .map(col => {
+            const label = toSpacedWords(col.name);
+            const varName = `isset($model) ? $model->${col.name} : old('${col.name}')`;
+            let input = '';
+            
+            switch (col.type) {
+                case LaravelColumnType.FOREIGN_ID:
+                    const relatedTable = col.name.replace(/_id$/, 's');
+                    const relatedVar = toCamelCase(relatedTable);
+                    const optionVar = relatedTable.replace(/s$/, '');
+                    input = `<select name="${col.name}" id="${col.name}" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-slate-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                @foreach($${relatedVar} as $${optionVar})
+                    <option value="{{ $${optionVar}->id }}" {{ ${varName} == $${optionVar}->id ? 'selected' : '' }}>
+                        {{ $${optionVar}->name ?? $${optionVar}->id }}
+                    </option>
+                @endforeach
+            </select>`;
+                    break;
+                case LaravelColumnType.TEXT:
+                case LaravelColumnType.LONG_TEXT:
+                    input = `<textarea name="${col.name}" id="${col.name}" rows="4" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">{{ ${varName} }}</textarea>`;
+                    break;
+                case LaravelColumnType.BOOLEAN:
+                    input = `<input type="hidden" name="${col.name}" value="0">
+            <input type="checkbox" name="${col.name}" id="${col.name}" value="1" {{ ${varName} ? 'checked' : '' }} class="h-4 w-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500">`;
+                    break;
+                case LaravelColumnType.DATE:
+                    input = `<input type="date" name="${col.name}" id="${col.name}" value="{{ ${varName} }}" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">`;
+                    break;
+                default:
+                    input = `<input type="text" name="${col.name}" id="${col.name}" value="{{ ${varName} }}" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">`;
+            }
+
+            return `<div class="mb-4">
+    <label for="${col.name}" class="block text-sm font-medium text-slate-700">${label}</label>
+    ${input}
+    @error('${col.name}')
+        <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+    @enderror
+</div>`;
+        }).join('\n\n');
+
+    return formFields;
+};
+
+// --- END: Web Admin UI Generators ---
+
+
 // --- ZIP Structure Helper ---
 export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectSettings: ProjectSettings) => {
     const files: Record<string, string> = {};
+    const adminUiNodes = nodes.filter(n => n.data.generateAdminUI);
     
     // Root project files
     files['composer.json'] = generateComposerJson(projectSettings);
@@ -1061,6 +1370,9 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectS
     files['TODO.md'] = generateTodoMd();
     files['GEMINI.md'] = generateGeminiMd();
     files['routes/api.php'] = generateApiRoutes(nodes);
+    if(adminUiNodes.length > 0) {
+        files['routes/web.php'] = generateWebRoutes(nodes);
+    }
     
     // Database files
     files['database/seeders/DatabaseSeeder.php'] = generateDatabaseSeeder(nodes);
@@ -1069,22 +1381,34 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectS
     files['app/Providers/AuthServiceProvider.php'] = generateAuthServiceProvider(nodes);
     files['app/Providers/EventServiceProvider.php'] = generateEventServiceProvider(nodes);
 
+    // Blade Views (if any admin UI is generated)
+    if(adminUiNodes.length > 0) {
+        files['resources/views/admin/layouts/app.blade.php'] = generateViewLayout(nodes);
+        files['resources/views/admin/partials/_nav.blade.php'] = generateViewNav(nodes);
+        // Welcome view placeholder
+        files['resources/views/welcome.blade.php'] = `<h1>Welcome! Go to /admin to see the generated UI.</h1>`;
+    }
+
     nodes.forEach(node => {
         const modelName = getModelName(node.data.name);
         
-        // Migrations: Add timestamp prefix for valid migration order
+        // Migrations
         const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
-        // Add random seconds to ensure uniqueness in zip
         const uniqueTs = parseInt(timestamp) + Math.floor(Math.random() * 1000);
         files[`database/migrations/${uniqueTs}_create_${node.data.name}_table.php`] = generateMigration(node, nodes, edges);
         
+        // Core files
         files[`app/Models/${modelName}.php`] = generateModel(node, nodes, edges, projectSettings);
-        files[`app/Http/Controllers/${modelName}Controller.php`] = generateController(node);
         files[`app/Http/Requests/Store${modelName}Request.php`] = generateStoreRequest(node);
         files[`app/Http/Requests/Update${modelName}Request.php`] = generateUpdateRequest(node);
-        files[`app/Http/Resources/${modelName}Resource.php`] = generateResource(node);
         files[`database/seeders/${modelName}Seeder.php`] = generateSeeder(node);
         files[`database/factories/${modelName}Factory.php`] = generateFactory(node);
+        
+        // API files
+        files[`app/Http/Controllers/Api/${modelName}Controller.php`] = generateApiController(node);
+        files[`app/Http/Resources/${modelName}Resource.php`] = generateResource(node);
+        
+        // TypeScript
         files[`resources/js/types/${modelName}.ts`] = generateTypeScript(node);
         
         // Policies & Observers
@@ -1093,6 +1417,15 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectS
         }
         if(node.data.generateObserver) {
             files[`app/Observers/${modelName}Observer.php`] = generateObserver(node);
+        }
+        
+        // Web Admin UI Files
+        if(node.data.generateAdminUI) {
+            files[`app/Http/Controllers/Web/${modelName}Controller.php`] = generateWebController(node, nodes);
+            files[`resources/views/admin/${node.data.name}/index.blade.php`] = generateViewIndex(node);
+            files[`resources/views/admin/${node.data.name}/create.blade.php`] = generateViewCreate(node);
+            files[`resources/views/admin/${node.data.name}/edit.blade.php`] = generateViewEdit(node);
+            files[`resources/views/admin/${node.data.name}/_form.blade.php`] = generateViewFormPartial(node);
         }
     });
 
