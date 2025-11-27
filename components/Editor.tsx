@@ -22,23 +22,14 @@ import ContextMenu from './ContextMenu';
 import CodeViewer from './CodeViewer';
 import AiAssistantModal from './AiAssistantModal';
 import RelationshipModal from './RelationshipModal';
-import { TableData, LaravelColumnType, AiSettings, Column } from '../types';
+import ProjectSettingsModal from './ProjectSettingsModal';
+import { TableData, LaravelColumnType, AiSettings, Column, ProjectSettings } from '../types';
 import { 
-    generateMigration, 
-    generateModel, 
-    generateSeeder, 
-    generateController, 
-    generateFactory, 
-    generateStoreRequest, 
-    generateUpdateRequest, 
-    generateResource, 
-    generateTypeScript,
-    generateApiRoutes,
     prepareZipData
 } from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
 import { getLayoutedElements } from '../services/layout';
-import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers, FileArchive } from 'lucide-react';
+import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers, FileArchive, Settings } from 'lucide-react';
 
 const nodeTypes = {
   table: TableNode,
@@ -58,6 +49,7 @@ export default function Editor() {
   
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   
   // Relationship Modal State
   const [relationshipWizard, setRelationshipWizard] = useState<{ sourceId: string, targetId: string } | null>(null);
@@ -65,6 +57,13 @@ export default function Editor() {
   const [menu, setMenu] = useState<{ id: string; top: number; left: number; right: number; bottom: number; type: 'node' | 'edge' | 'pane' } | null>(null);
   
   const ref = useRef<HTMLDivElement>(null);
+  
+  const [projectSettings, setProjectSettings] = useState<ProjectSettings>({
+      packages: {
+          sanctum: true,
+          spatiePermissions: false,
+      }
+  });
 
   // --- Handlers ---
 
@@ -433,6 +432,50 @@ export default function Editor() {
       setNodes(nds => [...nds, ...newNodes]);
   };
 
+  const handleAddSpatieTables = () => {
+    // Check if user table exists, to position tables relative to it.
+    const userNode = nodes.find(n => n.data.name === 'users');
+    const basePos = userNode?.position || { x: 100, y: 100 };
+
+    const spatieTables: TableData[] = [
+        { name: 'roles', columns: [ {id: generateId(), name: 'id', type: 'id', nullable: false, unique: false}, {id: generateId(), name: 'name', type: 'string', nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: 'string', nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
+        { name: 'permissions', columns: [ {id: generateId(), name: 'id', type: 'id', nullable: false, unique: false}, {id: generateId(), name: 'name', type: 'string', nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: 'string', nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
+        { name: 'model_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: 'string', nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: 'unsignedBigInteger', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+        { name: 'model_has_roles', columns: [ {id: generateId(), name: 'role_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: 'string', nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: 'unsignedBigInteger', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+        { name: 'role_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'role_id', type: 'foreignId', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+    ];
+    
+    const newNodes: Node[] = spatieTables.map((t, idx) => ({
+        id: t.name, // Use name as ID for easy linking
+        type: 'table',
+        position: { x: basePos.x + 350, y: basePos.y + (idx * 200) },
+        data: { ...t, onEdit: setSelectedTableId, onDelete: handleDeleteTable }
+    }));
+
+    setNodes(nds => [...nds, ...newNodes]);
+    
+    // Add edges automatically (simplified)
+    const newEdges = [
+        { id: 'e-mhr-roles', source: 'model_has_roles', sourceHandle: `src-${newNodes[3].data.columns[0].id}`, target: 'roles', targetHandle: `tgt-${newNodes[0].data.columns[0].id}` },
+        { id: 'e-rhp-roles', source: 'role_has_permissions', sourceHandle: `src-${newNodes[4].data.columns[1].id}`, target: 'roles', targetHandle: `tgt-${newNodes[0].data.columns[0].id}` },
+        { id: 'e-rhp-permissions', source: 'role_has_permissions', sourceHandle: `src-${newNodes[4].data.columns[0].id}`, target: 'permissions', targetHandle: `tgt-${newNodes[1].data.columns[0].id}` },
+    ];
+    
+    // @ts-ignore
+    setEdges(eds => [...eds, ...newEdges]);
+  };
+
+  const handleSettingsChange = (newSettings: ProjectSettings) => {
+    // If spatie permissions was just turned on, offer to add tables
+    if (newSettings.packages.spatiePermissions && !projectSettings.packages.spatiePermissions) {
+        if(confirm("Spatie Permissions enabled. Do you want to add the required roles and permissions tables to the canvas?")) {
+            handleAddSpatieTables();
+        }
+    }
+    setProjectSettings(newSettings);
+  };
+
+
   const handleDeleteTable = (id: string) => {
     setNodes((nds) => nds.filter((n) => n.id !== id));
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
@@ -567,7 +610,7 @@ export default function Editor() {
   // Export ZIP (PHP Code)
   const handleDownloadCode = async () => {
       const zip = new JSZip();
-      const files = prepareZipData(nodes, edges);
+      const files = prepareZipData(nodes, edges, projectSettings);
       
       Object.entries(files).forEach(([path, content]) => {
           zip.file(path, content);
@@ -607,31 +650,24 @@ export default function Editor() {
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedTableId), [nodes, selectedTableId]);
   
   const generatedFiles = useMemo(() => {
-      const files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' }[] = [];
-      if (nodes.length === 0) return files;
-      
-      const allFiles = prepareZipData(nodes, edges);
+      if (nodes.length === 0) return [];
+      const allFiles = prepareZipData(nodes, edges, projectSettings);
 
-      // A helper to determine file type from path
       const getFileType = (path: string): 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' => {
           if (path.startsWith('database/migrations')) return 'migration';
           if (path.startsWith('app/Models')) return 'model';
           if (path.startsWith('database/seeders') || path.startsWith('database/factories')) return 'seeder';
-          if (path.startsWith('app/Http')) return 'controller';
+          if (path.startsWith('app/Http') || path.startsWith('app/Policies') || path.startsWith('app/Observers')) return 'controller'; // Treat policies/observers as controllers for icon
           if (path.endsWith('.md')) return 'markdown';
           return 'config';
       }
 
-      for (const [path, content] of Object.entries(allFiles)) {
-          files.push({
-              name: path.split('/').pop() || path,
-              content: content,
-              type: getFileType(path)
-          });
-      }
-
-      return files;
-  }, [nodes, edges]);
+      return Object.entries(allFiles).map(([path, content]) => ({
+          name: path.split('/').pop() || path,
+          content: content,
+          type: getFileType(path)
+      }));
+  }, [nodes, edges, projectSettings]);
 
   const sourceNodeForWizard = useMemo(() => nodes.find(n => n.id === relationshipWizard?.sourceId), [nodes, relationshipWizard]);
   const targetNodeForWizard = useMemo(() => nodes.find(n => n.id === relationshipWizard?.targetId), [nodes, relationshipWizard]);
@@ -691,6 +727,14 @@ export default function Editor() {
                         <Layout size={20} />
                     </button>
                     
+                     <button 
+                        onClick={() => setShowSettingsModal(true)}
+                        className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                        title="Project Settings"
+                    >
+                        <Settings size={20} />
+                    </button>
+
                     <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
                     
                     <button 
@@ -775,6 +819,15 @@ export default function Editor() {
                 onGenerateText={handleAiGenerateText}
                 onGenerateJson={handleAiGenerateJson}
                 isLoading={isAiLoading}
+            />
+        )}
+
+        {/* Project Settings Modal */}
+        {showSettingsModal && (
+            <ProjectSettingsModal
+                settings={projectSettings}
+                onClose={() => setShowSettingsModal(false)}
+                onSave={handleSettingsChange}
             />
         )}
         

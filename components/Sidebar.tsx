@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette } from 'lucide-react';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette, Shield, Eye } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
@@ -45,7 +45,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
     onUpdateTable(selectedNode.id, { columns: data.columns.filter(c => c.id !== colId) });
   };
 
-  const handleOptionToggle = (key: 'timestamps' | 'softDeletes') => {
+  const handleOptionToggle = (key: 'timestamps' | 'softDeletes' | 'generatePolicy' | 'generateObserver') => {
       onUpdateTable(selectedNode.id, { [key]: !data[key] });
   }
 
@@ -172,6 +172,35 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
             </div>
 
             <div className="h-px bg-slate-200 dark:bg-slate-700" />
+            
+            {/* Advanced Code Generation */}
+            <div>
+                 <label className="block text-xs font-bold text-slate-500 uppercase mb-3">Code Generation</label>
+                 <div className="space-y-3">
+                    <label className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-md">
+                        <Shield size={16} className="text-blue-500" />
+                        <span className="flex-1">Eloquent Policy</span>
+                        <input 
+                            type="checkbox" 
+                            checked={!!data.generatePolicy} 
+                            onChange={() => handleOptionToggle('generatePolicy')} 
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-900" 
+                        />
+                    </label>
+                     <label className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-md">
+                        <Eye size={16} className="text-green-500" />
+                        <span className="flex-1">Eloquent Observer</span>
+                         <input 
+                            type="checkbox" 
+                            checked={!!data.generateObserver} 
+                            onChange={() => handleOptionToggle('generateObserver')} 
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-900" 
+                        />
+                    </label>
+                 </div>
+            </div>
+
+            <div className="h-px bg-slate-200 dark:bg-slate-700" />
 
             {/* Columns Manager */}
             <div>
@@ -186,7 +215,7 @@ export default function Sidebar({ selectedNode, onUpdateTable, onClose }: Sideba
                 </div>
                 
                 <div className="space-y-3">
-                    {data.columns.map((col, idx) => {
+                    {data.columns.map((col) => {
                         const isForeignKey = col.type === LaravelColumnType.FOREIGN_ID || col.name.endsWith('_id');
                         
                         return (

@@ -1,5 +1,5 @@
 import { Node, Edge } from "reactflow";
-import { TableData, Column, LaravelColumnType } from "../types";
+import { TableData, Column, LaravelColumnType, ProjectSettings } from "../types";
 
 // --- Helpers ---
 
@@ -172,11 +172,38 @@ const generateColumnLine = (
 export const generateModel = (
     node: Node<TableData>,
     allNodes: Node<TableData>[],
-    allEdges: Edge[]
+    allEdges: Edge[],
+    projectSettings: ProjectSettings
 ): string => {
     const table = node.data;
     const modelName = getModelName(table.name);
     
+    // Conditional Imports & Traits for User model
+    const isUser = table.name === 'users';
+    let uses = [ 'use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;' ];
+    let traits = [ 'HasFactory' ];
+    
+    if (table.softDeletes) {
+        uses.push('use Illuminate\\Database\\Eloquent\\SoftDeletes;');
+        traits.push('SoftDeletes');
+    }
+    if (isUser && projectSettings.packages.sanctum) {
+        uses.push('use Laravel\\Sanctum\\HasApiTokens;');
+        traits.push('HasApiTokens');
+    }
+    if (isUser && projectSettings.packages.spatiePermissions) {
+        uses.push('use Spatie\\Permission\\Traits\\HasRoles;');
+        traits.push('HasRoles');
+    }
+    
+    // Base Eloquent Model, for User it's Authenticatable
+    const extendsClass = isUser ? 'Authenticatable' : 'Model';
+    if(isUser) {
+        uses.push('use Illuminate\\Foundation\\Auth\\User as Authenticatable;');
+    } else {
+        uses.push('use Illuminate\\Database\\Eloquent\\Model;');
+    }
+
     const fillableCols = table.columns
         .filter(c => c.type !== LaravelColumnType.ID && c.type !== LaravelColumnType.MORPHS)
         .map(c => `'${c.name}'`)
@@ -237,22 +264,24 @@ export const generateModel = (
     }`;
     }).join('\n');
     
-    // Add HasOne import if needed
-    const hasOneImport = hasManyMethods.includes('HasOne') ? 'use Illuminate\\Database\\Eloquent\\Relations\\HasOne;' : '';
+    // Add relation imports if needed
+    if (belongsToMethods.length > 0) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\BelongsTo;');
+    if (hasManyMethods.length > 0) {
+      if (hasManyMethods.includes('HasOne')) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasOne;');
+      if (hasManyMethods.includes('HasMany')) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasMany;');
+    }
+    
+    // Dedupe and sort uses
+    const uniqueUses = [...new Set(uses)].sort().join('\n');
 
     return `${PHP_HEADER}namespace App\\Models;
 
-use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;
-use Illuminate\\Database\\Eloquent\\Model;
-use Illuminate\\Database\\Eloquent\\Relations\\BelongsTo;
-use Illuminate\\Database\\Eloquent\\Relations\\HasMany;
-${hasOneImport}
-${table.softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : ''}
+${uniqueUses}
 
-class ${modelName} extends Model
+class ${modelName} extends ${extendsClass}
 {
     /** @use HasFactory<\\Database\\Factories\\${modelName}Factory> */
-    use HasFactory${table.softDeletes ? ', SoftDeletes' : ''};
+    use ${traits.join(', ')};
 
     /**
      * The table associated with the model.
@@ -620,68 +649,257 @@ class ${modelName}Controller extends Controller
 `;
 }
 
+// --- Policy Generator ---
+export const generatePolicy = (node: Node<TableData>): string => {
+    const modelName = getModelName(node.data.name);
+    const modelVar = toCamelCase(modelName);
+
+    return `${PHP_HEADER}namespace App\\Policies;
+
+use App\\Models\\${modelName};
+use App\\Models\\User;
+use Illuminate\\Auth\\Access\\HandlesAuthorization;
+
+class ${modelName}Policy
+{
+    use HandlesAuthorization;
+
+    public function viewAny(User $user): bool
+    {
+        //
+    }
+
+    public function view(User $user, ${modelName} $${modelVar}): bool
+    {
+        //
+    }
+
+    public function create(User $user): bool
+    {
+        //
+    }
+
+    public function update(User $user, ${modelName} $${modelVar}): bool
+    {
+        //
+    }
+
+    public function delete(User $user, ${modelName} $${modelVar}): bool
+    {
+        //
+    }
+
+    public function restore(User $user, ${modelName} $${modelVar}): bool
+    {
+        //
+    }
+
+    public function forceDelete(User $user, ${modelName} $${modelVar}): bool
+    {
+        //
+    }
+}
+`;
+};
+
+// --- Observer Generator ---
+export const generateObserver = (node: Node<TableData>): string => {
+    const modelName = getModelName(node.data.name);
+    const modelVar = toCamelCase(modelName);
+
+    return `${PHP_HEADER}namespace App\\Observers;
+
+use App\\Models\\${modelName};
+
+class ${modelName}Observer
+{
+    public function created(${modelName} $${modelVar}): void
+    {
+        //
+    }
+
+    public function updated(${modelName} $${modelVar}): void
+    {
+        //
+    }
+
+    public function deleted(${modelName} $${modelVar}): void
+    {
+        //
+    }
+
+    public function restored(${modelName} $${modelVar}): void
+    {
+        //
+    }
+
+    public function forceDeleted(${modelName} $${modelVar}): void
+    {
+        //
+    }
+}
+`;
+};
+
+// --- Service Provider Generators ---
+export const generateAuthServiceProvider = (nodes: Node<TableData>[]): string => {
+    const policies = nodes
+        .filter(n => n.data.generatePolicy)
+        .map(n => `        \\App\\Models\\${getModelName(n.data.name)}::class => \\App\\Policies\\${getModelName(n.data.name)}Policy::class,`)
+        .join('\n');
+
+    return `${PHP_HEADER}namespace App\\Providers;
+
+use Illuminate\\Foundation\\Support\\Providers\\AuthServiceProvider as ServiceProvider;
+
+class AuthServiceProvider extends ServiceProvider
+{
+    /**
+     * The model to policy mappings for the application.
+     *
+     * @var array<class-string, class-string>
+     */
+    protected $policies = [
+${policies}
+    ];
+
+    /**
+     * Register any authentication / authorization services.
+     */
+    public function boot(): void
+    {
+        $this->registerPolicies();
+    }
+}
+`;
+};
+
+export const generateEventServiceProvider = (nodes: Node<TableData>[]): string => {
+    const observers = nodes
+        .filter(n => n.data.generateObserver)
+        .map(n => `        \\App\\Models\\${getModelName(n.data.name)}::class => [\\App\\Observers\\${getModelName(n.data.name)}Observer::class],`)
+        .join('\n');
+
+    return `${PHP_HEADER}namespace App\\Providers;
+
+use Illuminate\\Auth\\Events\\Registered;
+use Illuminate\\Auth\\Listeners\\SendEmailVerificationNotification;
+use Illuminate\\Foundation\\Support\\Providers\\EventServiceProvider as ServiceProvider;
+use Illuminate\\Support\\Facades\\Event;
+
+class EventServiceProvider extends ServiceProvider
+{
+    /**
+     * The event to listener mappings for the application.
+     *
+     * @var array<class-string, array<int, class-string>>
+     */
+    protected $listen = [
+        Registered::class => [
+            SendEmailVerificationNotification::class,
+        ],
+    ];
+
+     /**
+     * The model observers for your application.
+     *
+     * @var array
+     */
+    protected $observers = [
+${observers}
+    ];
+
+    /**
+     * Register any events for your application.
+     */
+    public function boot(): void
+    {
+        //
+    }
+
+    /**
+     * Determine if events and listeners should be automatically discovered.
+     */
+    public function shouldDiscoverEvents(): bool
+    {
+        return false;
+    }
+}
+`;
+};
+
+
 // --- Composer Generator ---
-export const generateComposerJson = (): string => {
-    return `{
-    "name": "laravel/laravel",
-    "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
-    "license": "MIT",
-    "require": {
+export const generateComposerJson = (projectSettings: ProjectSettings): string => {
+    const requirePackages = {
         "php": "^8.2",
         "laravel/framework": "^11.0",
         "laravel/tinker": "^2.9",
         "doctrine/dbal": "^3.0"
-    },
-    "require-dev": {
-        "fakerphp/faker": "^1.23",
-        "laravel/pint": "^1.13",
-        "laravel/sail": "^1.26",
-        "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.0",
-        "phpunit/phpunit": "^10.5",
-        "spatie/laravel-ignition": "^2.4"
-    },
-    "autoload": {
-        "psr-4": {
-            "App\\\\": "app/",
-            "Database\\\\Factories\\\\": "database/factories/",
-            "Database\\\\Seeders\\\\": "database/seeders/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "Tests\\\\": "tests/"
-        }
-    },
-    "scripts": {
-        "post-autoload-dump": [
-            "Illuminate\\\\Foundation\\\\ComposerScripts::postAutoloadDump",
-            "@php artisan package:discover --ansi"
-        ],
-        "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
-        ]
-    },
-    "extra": {
-        "laravel": {
-            "dont-discover": []
-        }
-    },
-    "config": {
-        "optimize-autoloader": true,
-        "preferred-install": "dist",
-        "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true,
-            "php-http/discovery": true
-        }
-    },
-    "minimum-stability": "stable",
-    "prefer-stable": true
-}
-`;
+    };
+    if(projectSettings.packages.sanctum) {
+        // @ts-ignore
+        requirePackages["laravel/sanctum"] = "^4.0";
+    }
+    if(projectSettings.packages.spatiePermissions) {
+        // @ts-ignore
+        requirePackages["spatie/laravel-permission"] = "^6.7";
+    }
+
+    return JSON.stringify({
+        "name": "laravel/laravel",
+        "type": "project",
+        "description": "The skeleton application for the Laravel framework.",
+        "keywords": ["laravel", "framework"],
+        "license": "MIT",
+        "require": requirePackages,
+        "require-dev": {
+            "fakerphp/faker": "^1.23",
+            "laravel/pint": "^1.13",
+            "laravel/sail": "^1.26",
+            "mockery/mockery": "^1.6",
+            "nunomaduro/collision": "^8.0",
+            "phpunit/phpunit": "^10.5",
+            "spatie/laravel-ignition": "^2.4"
+        },
+        "autoload": {
+            "psr-4": {
+                "App\\": "app/",
+                "Database\\Factories\\": "database/factories/",
+                "Database\\Seeders\\": "database/seeders/"
+            }
+        },
+        "autoload-dev": {
+            "psr-4": {
+                "Tests\\": "tests/"
+            }
+        },
+        "scripts": {
+            "post-autoload-dump": [
+                "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+                "@php artisan package:discover --ansi"
+            ],
+            "post-update-cmd": [
+                "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+            ]
+        },
+        "extra": {
+            "laravel": {
+                "dont-discover": []
+            }
+        },
+        "config": {
+            "optimize-autoloader": true,
+            "preferred-install": "dist",
+            "sort-packages": true,
+            "allow-plugins": {
+                "pestphp/pest-plugin": true,
+                "php-http/discovery": true
+            }
+        },
+        "minimum-stability": "stable",
+        "prefer-stable": true
+    }, null, 4);
 }
 
 export const generateReadme = (nodes: Node<TableData>[]): string => {
@@ -833,11 +1051,11 @@ const getCastType = (type: string) => {
 }
 
 // --- ZIP Structure Helper ---
-export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[]) => {
+export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[], projectSettings: ProjectSettings) => {
     const files: Record<string, string> = {};
     
     // Root project files
-    files['composer.json'] = generateComposerJson();
+    files['composer.json'] = generateComposerJson(projectSettings);
     files['package.json'] = generatePackageJson();
     files['README.md'] = generateReadme(nodes);
     files['TODO.md'] = generateTodoMd();
@@ -846,6 +1064,10 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[]) => {
     
     // Database files
     files['database/seeders/DatabaseSeeder.php'] = generateDatabaseSeeder(nodes);
+    
+    // Providers
+    files['app/Providers/AuthServiceProvider.php'] = generateAuthServiceProvider(nodes);
+    files['app/Providers/EventServiceProvider.php'] = generateEventServiceProvider(nodes);
 
     nodes.forEach(node => {
         const modelName = getModelName(node.data.name);
@@ -856,7 +1078,7 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[]) => {
         const uniqueTs = parseInt(timestamp) + Math.floor(Math.random() * 1000);
         files[`database/migrations/${uniqueTs}_create_${node.data.name}_table.php`] = generateMigration(node, nodes, edges);
         
-        files[`app/Models/${modelName}.php`] = generateModel(node, nodes, edges);
+        files[`app/Models/${modelName}.php`] = generateModel(node, nodes, edges, projectSettings);
         files[`app/Http/Controllers/${modelName}Controller.php`] = generateController(node);
         files[`app/Http/Requests/Store${modelName}Request.php`] = generateStoreRequest(node);
         files[`app/Http/Requests/Update${modelName}Request.php`] = generateUpdateRequest(node);
@@ -864,6 +1086,14 @@ export const prepareZipData = (nodes: Node<TableData>[], edges: Edge[]) => {
         files[`database/seeders/${modelName}Seeder.php`] = generateSeeder(node);
         files[`database/factories/${modelName}Factory.php`] = generateFactory(node);
         files[`resources/js/types/${modelName}.ts`] = generateTypeScript(node);
+        
+        // Policies & Observers
+        if(node.data.generatePolicy) {
+            files[`app/Policies/${modelName}Policy.php`] = generatePolicy(node);
+        }
+        if(node.data.generateObserver) {
+            files[`app/Observers/${modelName}Observer.php`] = generateObserver(node);
+        }
     });
 
     return files;

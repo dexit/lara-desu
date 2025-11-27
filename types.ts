@@ -1,4 +1,5 @@
 
+
 export interface Column {
   id: string;
   name: string;
@@ -22,7 +23,22 @@ export interface TableData {
   softDeletes: boolean;
   timestamps: boolean;
   color?: string;
+  generatePolicy?: boolean;
+  generateObserver?: boolean;
 }
+
+export interface ProjectSettings {
+  packages: {
+    sanctum: boolean;
+    spatiePermissions: boolean;
+  };
+}
+
+export const AVAILABLE_PACKAGES = {
+  SANCTUM: { id: 'sanctum', name: 'Laravel Sanctum', description: 'API token authentication.' },
+  SPATIE_PERMISSIONS: { id: 'spatiePermissions', name: 'Spatie Permissions', description: 'Role and permission management.' },
+};
+
 
 export interface SchemaState {
   tables: Record<string, TableData>; 
