@@ -15,7 +15,7 @@ import ReactFlow, {
   ConnectionMode,
 } from 'reactflow';
 import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
+import saveAs from 'file-saver';
 import TableNode from './TableNode';
 import Sidebar from './Sidebar';
 import ContextMenu from './ContextMenu';
@@ -34,8 +34,6 @@ import {
     generateResource, 
     generateTypeScript,
     generateApiRoutes,
-    generateComposerJson,
-    generateReadme,
     prepareZipData
 } from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
@@ -609,86 +607,29 @@ export default function Editor() {
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedTableId), [nodes, selectedTableId]);
   
   const generatedFiles = useMemo(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const files: { name: string; content: string; type: 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' }[] = [];
+      if (nodes.length === 0) return files;
       
-      // Global files
-      files.push({
-          name: 'composer.json',
-          content: generateComposerJson(nodes),
-          type: 'config'
-      });
-      files.push({
-          name: 'README.md',
-          content: generateReadme(nodes),
-          type: 'markdown'
-      });
-      if(nodes.length > 0) {
+      const allFiles = prepareZipData(nodes, edges);
+
+      // A helper to determine file type from path
+      const getFileType = (path: string): 'migration' | 'model' | 'seeder' | 'controller' | 'config' | 'markdown' => {
+          if (path.startsWith('database/migrations')) return 'migration';
+          if (path.startsWith('app/Models')) return 'model';
+          if (path.startsWith('database/seeders') || path.startsWith('database/factories')) return 'seeder';
+          if (path.startsWith('app/Http')) return 'controller';
+          if (path.endsWith('.md')) return 'markdown';
+          return 'config';
+      }
+
+      for (const [path, content] of Object.entries(allFiles)) {
           files.push({
-              name: 'api.php',
-              content: generateApiRoutes(nodes),
-              type: 'controller'
+              name: path.split('/').pop() || path,
+              content: content,
+              type: getFileType(path)
           });
       }
 
-      nodes.forEach(node => {
-          // Migration
-          files.push({
-              name: `create_${node.data.name}_table.php`,
-              content: generateMigration(node, nodes, edges),
-              type: 'migration'
-          });
-          
-          const modelName = node.data.name.replace(/(?:^\w|[A-Z]|\b\w)/g, (word) => word.toUpperCase()).replace(/\s+/g, '').replace(/_/g, '').replace(/s$/, '');
-          
-          // Model
-          files.push({
-              name: `${modelName}.php`,
-              content: generateModel(node, nodes, edges),
-              type: 'model'
-          });
-          // Seeder
-           files.push({
-              name: `${modelName}Seeder.php`,
-              content: generateSeeder(node),
-              type: 'seeder'
-          });
-          // Factory
-           files.push({
-              name: `${modelName}Factory.php`,
-              content: generateFactory(node),
-              type: 'seeder'
-          });
-          // Controller
-          files.push({
-              name: `${modelName}Controller.php`,
-              content: generateController(node),
-              type: 'controller'
-          });
-          // Form Requests
-          files.push({
-              name: `Store${modelName}Request.php`,
-              content: generateStoreRequest(node),
-              type: 'controller'
-          });
-          files.push({
-              name: `Update${modelName}Request.php`,
-              content: generateUpdateRequest(node),
-              type: 'controller'
-          });
-          // Resources
-           files.push({
-              name: `${modelName}Resource.php`,
-              content: generateResource(node),
-              type: 'controller'
-          });
-           // TypeScript Types
-           files.push({
-              name: `${modelName}.ts`,
-              content: generateTypeScript(node),
-              type: 'model'
-          });
-      });
       return files;
   }, [nodes, edges]);
 
