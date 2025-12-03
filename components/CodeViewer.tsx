@@ -11,6 +11,16 @@ interface CodeViewerProps {
   onClose: () => void;
 }
 
+// Helper function to escape HTML entities for safe rendering
+const escapeHtml = (unsafe: string): string => {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+};
+
 export default function CodeViewer({ files, onClose }: CodeViewerProps) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -18,20 +28,33 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
 
   const activeFile = files[selectedFileIndex];
 
+  const codeLang = useMemo(() => {
+    if (!activeFile) return 'php';
+    if (activeFile.name.endsWith('.json')) return 'json';
+    if (activeFile.name.endsWith('.ts')) return 'typescript';
+    if (activeFile.name.endsWith('.md')) return 'markdown';
+    return 'php';
+  }, [activeFile]);
+
   const highlightedCode = useMemo(() => {
     if (!activeFile) return '';
     
-    let grammar = Prism.languages.php;
-    if (activeFile.name.endsWith('.json')) grammar = Prism.languages.json;
-    if (activeFile.name.endsWith('.ts')) grammar = Prism.languages.typescript;
-    if (activeFile.name.endsWith('.md')) grammar = Prism.languages.markdown;
+    const grammar = Prism.languages[codeLang];
+
+    // Safety Check: Ensure grammar is loaded and highlight, otherwise fallback to plain text.
+    if (grammar) {
+      try {
+        return Prism.highlight(activeFile.content, grammar, codeLang);
+      } catch (e) {
+        console.error("Prism highlighting failed:", e);
+        // Fallback on error
+        return escapeHtml(activeFile.content);
+      }
+    }
     
-    return Prism.highlight(
-      activeFile.content,
-      grammar,
-      activeFile.name.endsWith('.json') ? 'json' : (activeFile.name.endsWith('.ts') ? 'typescript' : (activeFile.name.endsWith('.md') ? 'markdown' : 'php'))
-    );
-  }, [activeFile]);
+    // Fallback if grammar is not found
+    return escapeHtml(activeFile.content);
+  }, [activeFile, codeLang]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(activeFile.content);
@@ -132,7 +155,7 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
              <div className="flex-1 overflow-auto custom-scrollbar relative bg-[#1e1e1e]">
                  <pre className="line-numbers !bg-transparent !m-0 !p-4 !font-mono">
                      <code 
-                        className={`language-${activeFile?.name.endsWith('.json') ? 'json' : (activeFile?.name.endsWith('.md') ? 'markdown' : 'php')}`}
+                        className={`language-${codeLang}`}
                         dangerouslySetInnerHTML={{ __html: highlightedCode }}
                      />
                  </pre>

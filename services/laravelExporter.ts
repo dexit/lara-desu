@@ -263,7 +263,8 @@ export const generateModel = (
     }).join('\n');
 
     const incomingEdges = allEdges.filter(e => e.target === node.id);
-    const hasManyMethods = incomingEdges.map(edge => {
+    // Fix: Keep hasManyMethods as an array for `.some()` checks, then join it.
+    const hasManyMethodsArr = incomingEdges.map(edge => {
         const sourceNode = allNodes.find(n => n.id === edge.source);
         if(!sourceNode) return '';
         
@@ -288,7 +289,8 @@ export const generateModel = (
     {
         return $this->${relationMethod}(${sourceModel}::class);
     }`;
-    }).join('\n');
+    });
+    const hasManyMethods = hasManyMethodsArr.join('\n');
     
     // Sluggable method
     const sluggableMethod = (projectSettings.packages.spatieSluggable && table.generateSlug) ? `
@@ -305,8 +307,8 @@ export const generateModel = (
     // Add relation imports if needed
     if (belongsToMethods.length > 0) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\BelongsTo;');
     if (hasManyMethods.length > 0) {
-      if (hasManyMethods.some(m => m.includes('HasOne'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasOne;');
-      if (hasManyMethods.some(m => m.includes('HasMany'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasMany;');
+      if (hasManyMethodsArr.some(m => m.includes('HasOne'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasOne;');
+      if (hasManyMethodsArr.some(m => m.includes('HasMany'))) uses.push('use Illuminate\\Database\\Eloquent\\Relations\\HasMany;');
     }
     
     // Dedupe and sort uses
@@ -588,7 +590,7 @@ class ${modelName}Resource extends JsonResource
 export const generateApiRoutes = (nodes: Node<TableData>[]): string => {
     const routes = nodes.map(node => {
         const modelName = getModelName(node.data.name);
-        return `Route::apiResource('${node.data.name.replace(/_/g, '-')}', App\\Http\\Controllers\\Api\\${modelName}Controller::class);`;
+        return `    Route::apiResource('${node.data.name.replace(/_/g, '-')}', \\App\\Http\\Controllers\\Api\\${modelName}Controller::class);`;
     }).join('\n');
 
     return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
@@ -599,7 +601,9 @@ export const generateApiRoutes = (nodes: Node<TableData>[]): string => {
 |--------------------------------------------------------------------------
 */
 
+Route::middleware(['throttle:api'])->group(function () {
 ${routes}
+});
 `;
 };
 
@@ -1003,6 +1007,7 @@ ${adminPanelNote}
 
 - **Models**: Full Eloquent models with strict typing and relationships.
 - **API**: Full REST API controllers and resources with Form Request validation.
+- **API Rate Limiting**: Endpoints are protected by Laravel's built-in rate limiter (throttle:api).
 - **Admin Panel**: A complete Blade & TailwindCSS based admin panel for CRUD operations.
 - **Testing**: Includes Factories and a Database Seeder for robust testing and development.
 `;
