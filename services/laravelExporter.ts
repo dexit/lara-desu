@@ -1,4 +1,5 @@
 
+
 import { Node, Edge } from "reactflow";
 import { TableData, Column, LaravelColumnType, ProjectSettings } from "../types";
 
@@ -1009,6 +1010,9 @@ const getCastType = (type: string) => {
         case 'boolean': return 'boolean';
         case 'json': return 'array';
         case 'decimal': return 'decimal:2';
+        case 'date': return 'date';
+        case 'dateTime': case 'timestamp': return 'datetime';
+        case 'double': case 'float': return 'float';
         default: return 'string';
     }
 }
