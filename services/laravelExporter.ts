@@ -189,8 +189,7 @@ export const generateModel = (
     
     // Conditional Imports & Traits
     const isUser = table.name === 'users';
-    const isTeam = table.name === 'teams';
-
+    
     let uses = [ 'use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;' ];
     let traits = [ 'HasFactory' ];
     let interfaces = [];
@@ -685,33 +684,159 @@ ${installSteps}
 `;
 }
 
-// ... (Existing Request, Policy, Observer generators remain same - omitting for brevity but included in final build) ...
-const getValidationRules = (col: Column): string => {
+// --- Request, Resource, API Controller Generators ---
+
+const getValidationRules = (col: Column, table: TableData, isUpdate: boolean = false): string => {
     const rules = [];
     if (col.nullable) rules.push('nullable'); else rules.push('required');
-    if (['string', 'text', 'char'].includes(col.type)) rules.push('string');
+    
+    // Type rules
+    if (['string', 'text', 'char', 'longText', 'mediumText'].includes(col.type)) rules.push('string');
     if (['integer', 'bigInteger', 'tinyInteger', 'smallInteger'].includes(col.type)) rules.push('integer');
     if (['boolean'].includes(col.type)) rules.push('boolean');
     if (['date', 'dateTime', 'timestamp'].includes(col.type)) rules.push('date');
+    if (['decimal', 'float', 'double'].includes(col.type)) rules.push('numeric');
+    if (col.type === 'json') rules.push('array');
+    
+    // Content rules
     if (col.name.includes('email')) rules.push('email');
     if (col.type === 'string' && col.length) rules.push(`max:${col.length}`);
     else if (col.type === 'string') rules.push('max:255');
+    
+    // Enum
+    if (col.type === LaravelColumnType.ENUM && col.enumValues) {
+        const opts = col.enumValues.split(',').map(s => s.trim()).filter(Boolean);
+        rules.push(`in:${opts.join(',')}`);
+    }
+
+    // Unique
+    if (col.unique) {
+        let uniqueRule = `unique:${table.name},${col.name}`;
+        if (isUpdate) {
+             // For updates, we use Rule::unique()->ignore($this->route('model'))
+             // But simplified here, we will output this logic in the Request class generator
+             // if we detect a unique rule.
+        }
+        rules.push(uniqueRule);
+    }
+    
     return rules.map(r => `'${r}'`).join(', ');
 };
+
 export const generateStoreRequest = (node: Node<TableData>) => {
-     const table = node.data; const modelName = getModelName(table.name);
-     const rules = table.columns.filter(c => c.type !== 'id').map(c => `'${c.name}' => [${getValidationRules(c)}]`).join(',\n            ');
-     return `${PHP_HEADER}namespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nclass Store${modelName}Request extends FormRequest {\n    public function rules(): array {\n        return [\n            ${rules}\n        ];\n    }\n}`;
+     const table = node.data; 
+     const modelName = getModelName(table.name);
+     
+     const rules = table.columns
+        .filter(c => c.type !== LaravelColumnType.ID && c.type !== LaravelColumnType.TIMESTAMP && !['created_at', 'updated_at', 'deleted_at'].includes(c.name))
+        .map(c => {
+             const ruleString = getValidationRules(c, table, false);
+             return `'${c.name}' => [${ruleString}],`;
+        })
+        .join('\n            ');
+
+     return `${PHP_HEADER}namespace App\\Http\\Requests;
+
+use Illuminate\\Foundation\\Http\\FormRequest;
+
+class Store${modelName}Request extends FormRequest 
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \\Illuminate\\Contracts\\Validation\\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array 
+    {
+        return [
+            ${rules}
+        ];
+    }
+}`;
 }
+
 export const generateUpdateRequest = (node: Node<TableData>) => {
-     const table = node.data; const modelName = getModelName(table.name);
-     const rules = table.columns.filter(c => c.type !== 'id').map(c => `'${c.name}' => [${getValidationRules(c)}]`).join(',\n            ');
-     return `${PHP_HEADER}namespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nclass Update${modelName}Request extends FormRequest {\n    public function rules(): array {\n        return [\n            ${rules}\n        ];\n    }\n}`;
+     const table = node.data; 
+     const modelName = getModelName(table.name);
+     const paramName = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+
+     const rules = table.columns
+        .filter(c => c.type !== LaravelColumnType.ID && c.type !== LaravelColumnType.TIMESTAMP && !['created_at', 'updated_at', 'deleted_at'].includes(c.name))
+        .map(c => {
+             let ruleString = getValidationRules(c, table, true);
+             
+             // Smart Unique Rule for Updates
+             if (c.unique) {
+                 // Remove simple 'unique:table,col' from string list
+                 ruleString = ruleString.replace(/'unique:[^']+',?\s*/, '');
+                 // Add fluent rule
+                 return `'${c.name}' => [${ruleString}, \\Illuminate\\Validation\\Rule::unique('${table.name}', '${c.name}')->ignore($this->route('${paramName}'))],`;
+             }
+             
+             return `'${c.name}' => [${ruleString}],`;
+        })
+        .join('\n            ');
+
+     return `${PHP_HEADER}namespace App\\Http\\Requests;
+
+use Illuminate\\Foundation\\Http\\FormRequest;
+use Illuminate\\Validation\\Rule;
+
+class Update${modelName}Request extends FormRequest 
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \\Illuminate\\Contracts\\Validation\\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array 
+    {
+        return [
+            ${rules}
+        ];
+    }
+}`;
 }
+
 export const generateResource = (node: Node<TableData>) => {
-    const table = node.data; const modelName = getModelName(table.name);
-    return `${PHP_HEADER}namespace App\\Http\\Resources;\nuse Illuminate\\Http\\Resources\\Json\\JsonResource;\nclass ${modelName}Resource extends JsonResource {\n    public function toArray($request): array {\n        return parent::toArray($request);\n    }\n}`;
+    const table = node.data; 
+    const modelName = getModelName(table.name);
+    
+    return `${PHP_HEADER}namespace App\\Http\\Resources;
+
+use Illuminate\\Http\\Request;
+use Illuminate\\Http\\Resources\\Json\\JsonResource;
+
+class ${modelName}Resource extends JsonResource 
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array 
+    {
+        return parent::toArray($request);
+    }
+}`;
 }
+
 export const generateApiRoutes = (nodes: Node<TableData>[]) => {
     const routes = nodes.map(n => `    Route::apiResource('${n.data.name.replace(/_/g, '-')}', \\App\\Http\\Controllers\\Api\\${getModelName(n.data.name)}Controller::class);`).join('\n');
     return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
@@ -720,6 +845,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 ${routes}
 });`;
 }
+
 export const generateApiController = (node: Node<TableData>) => {
     const table = node.data;
     const modelName = getModelName(table.name);
