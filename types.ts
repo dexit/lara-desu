@@ -1,5 +1,4 @@
 
-
 export interface Column {
   id: string;
   name: string;
@@ -25,13 +24,18 @@ export interface TableData {
   color?: string;
   generatePolicy?: boolean;
   generateObserver?: boolean;
-  generateAdminUI?: boolean;
+  generateAdminUI?: boolean; // Legacy Blade UI
   generateSlug?: boolean; // New for Sluggable
 }
 
 export interface ProjectSettings {
   authentication: {
     breeze: boolean;
+  };
+  saas: {
+      filamentAdmin: boolean;
+      cashier: boolean;
+      tenancy: boolean;
   };
   packages: {
     sanctum: boolean;
@@ -47,7 +51,15 @@ export interface ProjectSettings {
 }
 
 export const AVAILABLE_PACKAGES = {
+  // Auth
   BREEZE: { id: 'breeze', name: 'Laravel Breeze', description: 'Complete authentication scaffolding (login, registration).', category: 'Authentication' },
+  
+  // SaaS
+  FILAMENT: { id: 'filamentAdmin', name: 'FilamentPHP Admin', description: 'The TALL stack admin panel. Replaces custom Blade views with a pro-grade dashboard.', category: 'SaaS' },
+  CASHIER: { id: 'cashier', name: 'Laravel Cashier (Stripe)', description: 'Subscription billing interface for Stripe.', category: 'SaaS' },
+  TENANCY: { id: 'tenancy', name: 'Single-DB Multi-tenancy', description: 'Scaffolds a Team model and traits for scoping data.', category: 'SaaS' },
+
+  // Spatie & Utils
   SANCTUM: { id: 'sanctum', name: 'Laravel Sanctum', description: 'API token authentication.', category: 'Packages' },
   SPATIE_PERMISSIONS: { id: 'spatiePermissions', name: 'Spatie Permissions', description: 'Associate users with roles and permissions.', category: 'Packages' },
   SPATIE_ACTIVITYLOG: { id: 'spatieActivityLog', name: 'Spatie Activity Log', description: 'Log activity inside your app.', category: 'Packages' },

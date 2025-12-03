@@ -62,6 +62,11 @@ export default function Editor() {
       authentication: {
           breeze: true,
       },
+      saas: {
+          filamentAdmin: false,
+          cashier: false,
+          tenancy: false,
+      },
       packages: {
           sanctum: true,
           spatiePermissions: false,
