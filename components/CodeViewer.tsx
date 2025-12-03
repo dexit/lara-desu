@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import Prism from 'prismjs';
+// Order is critical here: markup-templating must be loaded before PHP
+import 'prismjs/components/prism-markup-templating';
 import 'prismjs/components/prism-php';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-typescript';
@@ -39,15 +41,14 @@ export default function CodeViewer({ files, onClose }: CodeViewerProps) {
   const highlightedCode = useMemo(() => {
     if (!activeFile) return '';
     
+    // Safety check to prevent crashes if grammar isn't loaded
     const grammar = Prism.languages[codeLang];
 
-    // Safety Check: Ensure grammar is loaded and highlight, otherwise fallback to plain text.
     if (grammar) {
       try {
         return Prism.highlight(activeFile.content, grammar, codeLang);
       } catch (e) {
-        console.error("Prism highlighting failed:", e);
-        // Fallback on error
+        console.warn("Prism highlighting failed, falling back to plain text:", e);
         return escapeHtml(activeFile.content);
       }
     }
