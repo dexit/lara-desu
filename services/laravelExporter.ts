@@ -662,6 +662,7 @@ export const generateComposerJson = (projectSettings: ProjectSettings): string =
 
 export const generateReadme = (nodes: Node<TableData>[], projectSettings: ProjectSettings): string => {
     let features = `- **Models**: Full Eloquent models with strict typing.\n`;
+    features += `- **API Rate Limiting**: Enabled by default on all API endpoints.\n`;
     if (projectSettings.saas.filamentAdmin) features += `- **Filament Admin**: Pro-grade admin panel at \`/admin\`.\n`;
     if (projectSettings.saas.cashier) features += `- **Billing**: Stripe integration via Laravel Cashier.\n`;
     if (projectSettings.saas.tenancy) features += `- **Tenancy**: Team-based data scoping.\n`;
@@ -712,12 +713,76 @@ export const generateResource = (node: Node<TableData>) => {
     return `${PHP_HEADER}namespace App\\Http\\Resources;\nuse Illuminate\\Http\\Resources\\Json\\JsonResource;\nclass ${modelName}Resource extends JsonResource {\n    public function toArray($request): array {\n        return parent::toArray($request);\n    }\n}`;
 }
 export const generateApiRoutes = (nodes: Node<TableData>[]) => {
-    const routes = nodes.map(n => `Route::apiResource('${n.data.name.replace(/_/g,'-')}', \\App\\Http\\Controllers\\Api\\${getModelName(n.data.name)}Controller::class);`).join('\n');
-    return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;\nRoute::middleware(['auth:sanctum', 'throttle:api'])->group(function () {\n${routes}\n});`;
+    const routes = nodes.map(n => `    Route::apiResource('${n.data.name.replace(/_/g, '-')}', \\App\\Http\\Controllers\\Api\\${getModelName(n.data.name)}Controller::class);`).join('\n');
+    return `${PHP_HEADER}use Illuminate\\Support\\Facades\\Route;
+
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+${routes}
+});`;
 }
 export const generateApiController = (node: Node<TableData>) => {
-    const m = getModelName(node.data.name);
-    return `${PHP_HEADER}namespace App\\Http\\Controllers\\Api;\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\${m};\nclass ${m}Controller extends Controller {}`;
+    const table = node.data;
+    const modelName = getModelName(table.name);
+    const variableName = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+
+    return `${PHP_HEADER}namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\${modelName};
+use App\\Http\\Requests\\Store${modelName}Request;
+use App\\Http\\Requests\\Update${modelName}Request;
+use App\\Http\\Resources\\${modelName}Resource;
+use Illuminate\\Http\\Resources\\Json\\AnonymousResourceCollection;
+use Illuminate\\Http\\JsonResponse;
+
+class ${modelName}Controller extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     */
+    public function index(): AnonymousResourceCollection
+    {
+        return ${modelName}Resource::collection(${modelName}::paginate());
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(Store${modelName}Request $request): ${modelName}Resource
+    {
+        $${variableName} = ${modelName}::create($request->validated());
+
+        return new ${modelName}Resource($${variableName});
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(${modelName} $${variableName}): ${modelName}Resource
+    {
+        return new ${modelName}Resource($${variableName});
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(Update${modelName}Request $request, ${modelName} $${variableName}): ${modelName}Resource
+    {
+        $${variableName}->update($request->validated());
+
+        return new ${modelName}Resource($${variableName});
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(${modelName} $${variableName}): JsonResponse
+    {
+        $${variableName}->delete();
+
+        return response()->json(null, 204);
+    }
+}`;
 }
 export const generateDatabaseSeeder = (nodes: Node<TableData>[]) => {
      const calls = nodes.map(n => `            ${getModelName(n.data.name)}Seeder::class,`).join('\n');
