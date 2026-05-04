@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { Node } from 'reactflow';
 import { TableData, LaravelColumnType, Column, ProjectSettings } from '../types';
-import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette, Shield, Eye, LayoutGrid, Type } from 'lucide-react';
+import { Trash2, Plus, X, ChevronDown, ChevronRight, List, AlertCircle, Link2, Palette, Shield, Eye, LayoutGrid, Type, AlertTriangle } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode?: Node<TableData>;
-  projectSettings: ProjectSettings; // Receive project settings
+  projectSettings: ProjectSettings;
+  allNodes: Node<TableData>[]; // Added to check for duplicates
   onUpdateTable: (id: string, data: Partial<TableData>) => void;
   onClose: () => void;
 }
 
-export default function Sidebar({ selectedNode, projectSettings, onUpdateTable, onClose }: SidebarProps) {
+export default function Sidebar({ selectedNode, projectSettings, allNodes, onUpdateTable, onClose }: SidebarProps) {
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
+
+  const duplicateNameError = useMemo(() => {
+      if (!selectedNode) return false;
+      return allNodes.some(n => n.id !== selectedNode.id && n.data.name === selectedNode.data.name);
+  }, [selectedNode, allNodes]);
 
   if (!selectedNode) return null;
 
@@ -114,13 +121,23 @@ export default function Sidebar({ selectedNode, projectSettings, onUpdateTable, 
             <div className="space-y-4">
                 <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Table Name</label>
-                    <input 
-                        type="text" 
-                        value={data.name} 
-                        onChange={handleNameChange}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm dark:text-white font-mono"
-                        placeholder="e.g. users"
-                    />
+                    <div className="relative">
+                        <input 
+                            type="text" 
+                            value={data.name} 
+                            onChange={handleNameChange}
+                            className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border rounded-lg focus:ring-2 outline-none text-sm dark:text-white font-mono ${duplicateNameError ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'}`}
+                            placeholder="e.g. users"
+                        />
+                        {duplicateNameError && (
+                             <div className="absolute right-3 top-2.5 text-red-500" title="Table name must be unique">
+                                <AlertCircle size={16} />
+                            </div>
+                        )}
+                    </div>
+                    {duplicateNameError && (
+                        <p className="text-xs text-red-500 mt-1">Table name already exists.</p>
+                    )}
                 </div>
                 
                 <div className="flex gap-4">

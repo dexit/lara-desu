@@ -28,14 +28,37 @@ export interface TableData {
   generateSlug?: boolean; // New for Sluggable
 }
 
+export type FrontendStack = 'blade' | 'livewire' | 'inertia-vue' | 'inertia-react';
+
 export interface ProjectSettings {
+  frontend: {
+      stack: FrontendStack;
+      installJetstream: boolean;
+  };
   authentication: {
     breeze: boolean;
+    socialite: boolean;
   };
   saas: {
       filamentAdmin: boolean;
       cashier: boolean;
       tenancy: boolean;
+  };
+  api: {
+    rateLimitRequests: number;
+    rateLimitPeriod: number; // in minutes
+    generateDtos: boolean;
+    generateApiResources: boolean;
+    generateDocs: boolean; // Scramble
+  };
+  devTools: {
+      telescope: boolean;
+      horizon: boolean;
+      debugbar: boolean;
+  };
+  testing: {
+      pest: boolean;
+      dusk: boolean;
   };
   packages: {
     sanctum: boolean;
@@ -44,15 +67,16 @@ export interface ProjectSettings {
     spatieMediaLibrary: boolean;
     spatieBackup: boolean;
     spatieSluggable: boolean;
+    spatieHealth: boolean;
     spatieWebhookClient: boolean;
     spatieWebhookServer: boolean;
-    spatieHealth: boolean;
   };
 }
 
 export const AVAILABLE_PACKAGES = {
   // Auth
   BREEZE: { id: 'breeze', name: 'Laravel Breeze', description: 'Complete authentication scaffolding (login, registration).', category: 'Authentication' },
+  SOCIALITE: { id: 'socialite', name: 'Laravel Socialite', description: 'OAuth authentication (Google, Facebook, GitHub).', category: 'Authentication' },
   
   // SaaS
   FILAMENT: { id: 'filamentAdmin', name: 'FilamentPHP Admin', description: 'The TALL stack admin panel. Replaces custom Blade views with a pro-grade dashboard.', category: 'SaaS' },
@@ -73,7 +97,10 @@ export const AVAILABLE_PACKAGES = {
 
 
 export interface SchemaState {
-  tables: Record<string, TableData>; 
+  projectTitle: string;
+  nodes: any[];
+  edges: any[];
+  settings: ProjectSettings;
 }
 
 export enum LaravelColumnType {
@@ -145,16 +172,16 @@ export const AVAILABLE_MODELS = [
     { 
         id: 'gemini-flash-latest', 
         name: 'Gemini 2.5 Flash', 
-        description: 'Optimized for speed and efficiency. Best for standard schema generation and rapid prototyping.' 
+        description: 'Optimized for speed and efficiency. Best for standard schema generation.' 
     },
     { 
         id: 'gemini-2.5-pro', 
         name: 'Gemini 2.5 Pro', 
-        description: 'Highest reasoning capability. Ideal for complex domains, intricate relationships, and advanced logic.' 
+        description: 'Highest reasoning capability. Ideal for complex domains.' 
     },
     { 
-        id: 'gemini-3-pro-preview', 
-        name: 'Gemini 3.0 Pro (Preview)', 
-        description: 'Highest reasoning capability. Ideal for complex domains, intricate relationships, and advanced logic.' 
+        id: 'chrome-builtin', 
+        name: 'Chrome Built-in AI (Nano)', 
+        description: 'Runs locally in browser. Zero latency, no API key required. (Experimental)' 
     },
 ];

@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -6,12 +7,19 @@
     <title>LaraSchema Architect</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/style.css" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
         darkMode: 'media',
         theme: {
           extend: {
+            fontFamily: {
+                sans: ['Inter', 'sans-serif'],
+                mono: ['JetBrains Mono', 'monospace'],
+            },
             colors: {
               slate: {
                 850: '#151e2e',
@@ -23,7 +31,7 @@
       }
     </script>
     <style>
-      body, html { height: 100%; margin: 0; overflow: hidden; }
+      body, html { height: 100%; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
       /* Custom scrollbar for sidebar */
       ::-webkit-scrollbar {
         width: 6px;

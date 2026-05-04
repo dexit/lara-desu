@@ -1,4 +1,5 @@
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+
+import React, { useCallback, useState, useMemo, useRef, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -10,7 +11,6 @@ import ReactFlow, {
   Edge,
   Node,
   ReactFlowProvider,
-  Panel,
   MarkerType,
   ConnectionMode,
 } from 'reactflow';
@@ -23,49 +23,66 @@ import CodeViewer from './CodeViewer';
 import AiAssistantModal from './AiAssistantModal';
 import RelationshipModal from './RelationshipModal';
 import ProjectSettingsModal from './ProjectSettingsModal';
-import { TableData, LaravelColumnType, AiSettings, Column, ProjectSettings } from '../types';
+import { ToastContainer, ToastMessage, ToastType } from './Toast';
+import { TableData, LaravelColumnType, AiSettings, Column, ProjectSettings, SchemaState } from '../types';
 import { 
     prepareZipData
 } from '../services/laravelExporter';
 import { suggestSchema, suggestSchemaFromJson } from '../services/geminiService';
 import { getLayoutedElements } from '../services/layout';
-import { Code, Download, Plus, Sparkles, X, Share2, Layout, Layers, FileArchive, Settings } from 'lucide-react';
+import { 
+    Code, Download, Plus, Sparkles, X, Share2, Layout, Layers, FileArchive, Settings, 
+    Save, Clock, RotateCcw, Pen, Check
+} from 'lucide-react';
 
 const nodeTypes = {
   table: TableNode,
 };
 
-const initialNodes: Node[] = [];
-const initialEdges: Edge[] = [];
+const STORAGE_KEY = 'lara-schema-v1-state';
 
 // Helper to create a new unique ID
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export default function Editor() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [projectTitle, setProjectTitle] = useState('My Laravel Project');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   
-  const [showCodePreview, setShowCodePreview] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  
-  // Relationship Modal State
-  const [relationshipWizard, setRelationshipWizard] = useState<{ sourceId: string, targetId: string } | null>(null);
+  // Storage & Feedback State
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  const [menu, setMenu] = useState<{ id: string; top: number; left: number; right: number; bottom: number; type: 'node' | 'edge' | 'pane' } | null>(null);
-  
-  const ref = useRef<HTMLDivElement>(null);
-  
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({
+      frontend: {
+          stack: 'blade',
+          installJetstream: false,
+      },
       authentication: {
           breeze: true,
+          socialite: false,
       },
       saas: {
           filamentAdmin: false,
           cashier: false,
           tenancy: false,
+      },
+      api: {
+        rateLimitRequests: 60,
+        rateLimitPeriod: 1,
+        generateDtos: false,
+        generateApiResources: false,
+        generateDocs: false,
+      },
+      devTools: {
+        telescope: false,
+        horizon: false,
+        debugbar: false,
+      },
+      testing: {
+        pest: true,
+        dusk: false,
       },
       packages: {
           sanctum: true,
@@ -79,6 +96,83 @@ export default function Editor() {
           spatieWebhookServer: false,
       }
   });
+
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  
+  const [showCodePreview, setShowCodePreview] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  
+  // Relationship Modal State
+  const [relationshipWizard, setRelationshipWizard] = useState<{ sourceId: string, targetId: string } | null>(null);
+
+  const [menu, setMenu] = useState<{ id: string; top: number; left: number; right: number; bottom: number; type: 'node' | 'edge' | 'pane' } | null>(null);
+  
+  const ref = useRef<HTMLDivElement>(null);
+
+  // --- Toast Helper ---
+  const addToast = (type: ToastType, message: string) => {
+      const id = generateId();
+      setToasts(prev => [...prev, { id, type, message }]);
+  };
+
+  const removeToast = (id: string) => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // -- State Persistence --
+  useEffect(() => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+          try {
+              const parsed: SchemaState = JSON.parse(saved);
+              setNodes(parsed.nodes || []);
+              setEdges(parsed.edges || []);
+              if (parsed.settings) setProjectSettings(parsed.settings);
+              if (parsed.projectTitle) setProjectTitle(parsed.projectTitle);
+              setLastSaved(new Date());
+              addToast('success', 'Project restored from last session');
+          } catch(e) {
+              console.error('Failed to load state', e);
+          }
+      }
+  }, []);
+
+  // Debounced Save
+  useEffect(() => {
+      if (nodes.length === 0 && edges.length === 0) return;
+
+      setSaveStatus('saving');
+      const timer = setTimeout(() => {
+          const state: SchemaState = {
+              projectTitle,
+              nodes,
+              edges,
+              settings: projectSettings
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          setSaveStatus('saved');
+          setLastSaved(new Date());
+      }, 1000); // 1s debounce
+
+      return () => clearTimeout(timer);
+  }, [nodes, edges, projectSettings, projectTitle]);
+
+  // --- Shortcuts ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            e.preventDefault();
+            exportProject();
+            addToast('success', 'Project exported to JSON');
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, edges, projectTitle]);
+
 
   // --- Handlers ---
 
@@ -100,7 +194,6 @@ export default function Editor() {
       const cleanTargetId = params.targetHandle.replace(/^(src-|tgt-)/, '').replace(/-(r|l)$/, '');
 
       // Smart Auto-Update for Generic Columns being connected to IDs
-      // If user connects 'some_string' -> 'id', assume it's an FK
       setNodes((nds) => {
           return nds.map(node => {
               if (node.id === params.source) {
@@ -134,6 +227,7 @@ export default function Editor() {
           markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' },
           type: 'default'
       }, eds));
+      addToast('info', 'Relationship connected');
     },
     [setEdges, setNodes]
   );
@@ -196,7 +290,7 @@ export default function Editor() {
                  animated: true,
                  style: { stroke: '#6366f1', strokeWidth: 2 },
                  markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' }
-             }, eds));
+              }, eds));
           }
 
       } else if (type === '1:1') {
@@ -313,6 +407,7 @@ export default function Editor() {
       }
       
       setRelationshipWizard(null);
+      addToast('success', `${type} relationship created`);
   };
 
   const onPaneClick = useCallback(() => setMenu(null), []);
@@ -445,6 +540,7 @@ export default function Editor() {
       }));
 
       setNodes(nds => [...nds, ...newNodes]);
+      addToast('success', 'Core tables added');
   };
 
   const handleAddSpatieTables = () => {
@@ -453,11 +549,11 @@ export default function Editor() {
     const basePos = userNode?.position || { x: 100, y: 100 };
 
     const spatieTables: TableData[] = [
-        { name: 'roles', columns: [ {id: generateId(), name: 'id', type: 'id', nullable: false, unique: false}, {id: generateId(), name: 'name', type: 'string', nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: 'string', nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
-        { name: 'permissions', columns: [ {id: generateId(), name: 'id', type: 'id', nullable: false, unique: false}, {id: generateId(), name: 'name', type: 'string', nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: 'string', nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
-        { name: 'model_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: 'string', nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: 'unsignedBigInteger', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
-        { name: 'model_has_roles', columns: [ {id: generateId(), name: 'role_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: 'string', nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: 'unsignedBigInteger', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
-        { name: 'role_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: 'foreignId', nullable: false, unique: false}, {id: generateId(), name: 'role_id', type: 'foreignId', nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+        { name: 'roles', columns: [ {id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false}, {id: generateId(), name: 'name', type: LaravelColumnType.STRING, nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: LaravelColumnType.STRING, nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
+        { name: 'permissions', columns: [ {id: generateId(), name: 'id', type: LaravelColumnType.ID, nullable: false, unique: false}, {id: generateId(), name: 'name', type: LaravelColumnType.STRING, nullable: false, unique: true}, {id: generateId(), name: 'guard_name', type: LaravelColumnType.STRING, nullable: false, unique: true} ], timestamps: true, softDeletes: false, color: '#f5f3ff' },
+        { name: 'model_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: LaravelColumnType.STRING, nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: LaravelColumnType.BIG_INTEGER, nullable: false, unique: false, unsigned: true} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+        { name: 'model_has_roles', columns: [ {id: generateId(), name: 'role_id', type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false}, {id: generateId(), name: 'model_type', type: LaravelColumnType.STRING, nullable: false, unique: false}, {id: generateId(), name: 'model_id', type: LaravelColumnType.BIG_INTEGER, nullable: false, unique: false, unsigned: true} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
+        { name: 'role_has_permissions', columns: [ {id: generateId(), name: 'permission_id', type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false}, {id: generateId(), name: 'role_id', type: LaravelColumnType.FOREIGN_ID, nullable: false, unique: false} ], timestamps: false, softDeletes: false, color: '#f0fdf4' },
     ];
     
     const newNodes: Node[] = spatieTables.map((t, idx) => ({
@@ -478,6 +574,7 @@ export default function Editor() {
     
     // @ts-ignore
     setEdges(eds => [...eds, ...newEdges]);
+    addToast('success', 'Spatie Permission tables configured');
   };
 
   const handleSettingsChange = (newSettings: ProjectSettings) => {
@@ -497,6 +594,7 @@ export default function Editor() {
         }
     }
     setProjectSettings(newSettings);
+    addToast('success', 'Settings saved');
   };
 
 
@@ -524,6 +622,7 @@ export default function Editor() {
           }
       };
       setNodes((nds) => nds.concat(newNode));
+      addToast('success', 'Table duplicated');
   };
 
   const handleUpdateTable = (id: string, newData: Partial<TableData>) => {
@@ -541,7 +640,16 @@ export default function Editor() {
       const layouted = getLayoutedElements(nodes, edges);
       setNodes([...layouted.nodes]);
       setEdges([...layouted.edges]);
+      addToast('success', 'Layout updated');
   }, [nodes, edges, setNodes, setEdges]);
+  
+  const handleResetCanvas = () => {
+      if (confirm('Are you sure you want to clear the entire canvas? This action cannot be undone.')) {
+          setNodes([]);
+          setEdges([]);
+          addToast('info', 'Canvas cleared');
+      }
+  };
 
   const processAiNodes = (suggestedTables: TableData[]) => {
       const newNodes: Node[] = suggestedTables.map((table, index) => ({
@@ -593,6 +701,7 @@ export default function Editor() {
       }, 100);
       
       setShowAiModal(false);
+      addToast('success', `${suggestedTables.length} tables generated`);
   };
 
   const handleAiGenerateText = async (prompt: string, settings: AiSettings) => {
@@ -602,7 +711,7 @@ export default function Editor() {
       processAiNodes(suggestedTables);
     } catch (e) {
       console.error(e);
-      alert("Failed to generate schema.");
+      addToast('error', 'Failed to generate schema via AI');
     } finally {
       setIsAiLoading(false);
     }
@@ -614,7 +723,7 @@ export default function Editor() {
           const tables = await suggestSchemaFromJson(req, res, settings);
           processAiNodes(tables);
       } catch(e) {
-          alert('Failed to parse API JSON');
+           addToast('error', 'Failed to parse API JSON');
       } finally {
           setIsAiLoading(false);
       }
@@ -622,13 +731,14 @@ export default function Editor() {
 
   // Export JSON (Project State)
   const exportProject = () => {
-    const data = { nodes, edges };
+    const data: SchemaState = { projectTitle, nodes, edges, settings: projectSettings };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'lara-schema.json';
+    a.download = `${projectTitle.toLowerCase().replace(/\s+/g, '-')}.json`;
     a.click();
+    addToast('success', 'Project exported to JSON');
   };
   
   // Export ZIP (PHP Code)
@@ -641,7 +751,8 @@ export default function Editor() {
       });
       
       const content = await zip.generateAsync({ type: 'blob' });
-      saveAs(content, 'laravel-schema.zip');
+      saveAs(content, `${projectTitle.toLowerCase().replace(/\s+/g, '-')}-laravel.zip`);
+      addToast('success', 'Laravel application code exported!');
   };
   
   const importProject = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -664,8 +775,11 @@ export default function Editor() {
                 setNodes(restoredNodes);
             }
             if (json.edges) setEdges(json.edges);
+            if (json.settings) setProjectSettings(json.settings);
+            if (json.projectTitle) setProjectTitle(json.projectTitle);
+            addToast('success', 'Project imported successfully');
           } catch (err) {
-              alert('Invalid file format');
+              addToast('error', 'Invalid file format');
           }
       };
       reader.readAsText(file);
@@ -701,7 +815,8 @@ export default function Editor() {
       <ReactFlowProvider>
         <Sidebar 
             selectedNode={selectedNode} 
-            projectSettings={projectSettings} // Pass settings to sidebar
+            projectSettings={projectSettings} 
+            allNodes={nodes} // Pass all nodes for validation
             onUpdateTable={handleUpdateTable}
             onClose={() => setSelectedTableId(null)}
         />
@@ -726,81 +841,142 @@ export default function Editor() {
                 <Controls />
                 <MiniMap style={{background: '#1e293b'}} nodeColor={(n) => n.data.color || '#6366f1'} />
                 
-                {/* Top Toolbar */}
-                <Panel position="top-center" className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center mt-4 flex-wrap justify-center mx-4 animate-in slide-in-from-top-4 duration-500 z-40">
-                    <button 
-                        onClick={() => handleAddTable()}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md hover:shadow-indigo-500/30"
-                    >
-                        <Plus size={16} />
-                        New Table
-                    </button>
-
-                     <button 
-                        onClick={handleAddCoreTables}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white rounded-xl text-sm font-bold transition-all"
-                    >
-                        <Layers size={16} />
-                        Add Core Tables
-                    </button>
+                {/* 2026 Style Dynamic Floating Toolbar */}
+                <div className="absolute top-4 left-4 right-4 z-40 flex justify-between items-start pointer-events-none">
                     
-                    <button 
-                        onClick={handleLayout}
-                        className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Auto Layout"
-                    >
-                        <Layout size={20} />
-                    </button>
-                    
-                     <button 
-                        onClick={() => setShowSettingsModal(true)}
-                        className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Project Settings"
-                    >
-                        <Settings size={20} />
-                    </button>
+                    {/* Left: Project Info & Persistence */}
+                    <div className="pointer-events-auto bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-4 items-center animate-in slide-in-from-top-4 duration-500">
+                        <div className="flex flex-col px-2">
+                             <div className="flex items-center gap-2 group">
+                                {isEditingTitle ? (
+                                    <input 
+                                        type="text" 
+                                        value={projectTitle} 
+                                        onChange={(e) => setProjectTitle(e.target.value)} 
+                                        onBlur={() => setIsEditingTitle(false)}
+                                        onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
+                                        autoFocus
+                                        className="bg-transparent border-b border-indigo-500 outline-none text-sm font-bold text-slate-800 dark:text-white w-32"
+                                    />
+                                ) : (
+                                    <span 
+                                        onClick={() => setIsEditingTitle(true)}
+                                        className="text-sm font-bold text-slate-800 dark:text-white cursor-pointer hover:text-indigo-500 transition-colors truncate max-w-[150px]"
+                                    >
+                                        {projectTitle}
+                                    </span>
+                                )}
+                                {!isEditingTitle && <Pen size={10} className="opacity-0 group-hover:opacity-50 text-slate-400" />}
+                             </div>
+                             <div className="flex items-center gap-1.5 mt-0.5">
+                                 {saveStatus === 'saving' ? (
+                                     <>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                                        <span className="text-[10px] text-slate-500 font-medium">Saving...</span>
+                                     </>
+                                 ) : saveStatus === 'unsaved' ? (
+                                     <>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                        <span className="text-[10px] text-slate-500 font-medium">Unsaved</span>
+                                     </>
+                                 ) : (
+                                     <>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        <span className="text-[10px] text-slate-500 font-medium">Saved {lastSaved && `at ${lastSaved.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}</span>
+                                     </>
+                                 )}
+                             </div>
+                        </div>
+                    </div>
 
-                    <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
-                    
-                    <button 
-                        onClick={() => setShowAiModal(true)}
-                         className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-sm font-bold transition-all shadow-md hover:shadow-purple-500/30"
-                    >
-                        <Sparkles size={16} />
-                        AI Architect
-                    </button>
+                    {/* Center: Creation Tools */}
+                    <div className="pointer-events-auto bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center animate-in slide-in-from-top-4 duration-500 delay-75">
+                         <button 
+                            onClick={() => handleAddTable()}
+                            className="group flex flex-col items-center justify-center w-10 h-10 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all relative"
+                            title="New Table"
+                        >
+                            <Plus size={20} className="text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
+                        </button>
 
-                    <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
+                         <button 
+                            onClick={handleAddCoreTables}
+                            className="group flex flex-col items-center justify-center w-10 h-10 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all relative"
+                            title="Add Core Tables"
+                        >
+                            <Layers size={20} className="text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+                        </button>
+                        
+                         <button 
+                            onClick={handleLayout}
+                            className="group flex flex-col items-center justify-center w-10 h-10 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all relative"
+                            title="Auto Layout"
+                        >
+                            <Layout size={20} className="text-slate-700 dark:text-slate-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors" />
+                        </button>
+                        
+                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
 
-                    <button 
-                        onClick={() => setShowCodePreview(true)}
-                        className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Open IDE"
-                    >
-                        <Code size={20} />
-                    </button>
-                    
-                     <button 
-                        onClick={handleDownloadCode}
-                        className="p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors"
-                        title="Export PHP Code (ZIP)"
-                    >
-                        <FileArchive size={20} />
-                    </button>
+                        <button 
+                            onClick={() => setShowAiModal(true)}
+                             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40"
+                        >
+                            <Sparkles size={16} />
+                            <span>AI Architect</span>
+                        </button>
+                    </div>
 
-                     <button 
-                        onClick={exportProject}
-                        className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Export JSON State"
-                    >
-                        <Download size={20} />
-                    </button>
-                     <label className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition-colors" title="Import JSON State">
-                        <span className="sr-only">Import</span>
-                        <Share2 size={20} className="transform rotate-90" />
-                        <input type="file" className="hidden" accept=".json" onChange={importProject} />
-                    </label>
-                </Panel>
+                    {/* Right: System & Actions */}
+                    <div className="pointer-events-auto bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2 items-center animate-in slide-in-from-top-4 duration-500 delay-150">
+                        <button 
+                            onClick={() => setShowSettingsModal(true)}
+                            className="w-9 h-9 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                            title="Project Settings"
+                        >
+                            <Settings size={18} />
+                        </button>
+                        
+                         <button 
+                            onClick={handleResetCanvas}
+                            className="w-9 h-9 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+                            title="Reset Canvas"
+                        >
+                            <RotateCcw size={18} />
+                        </button>
+
+                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
+
+                         <button 
+                            onClick={() => setShowCodePreview(true)}
+                            className="w-9 h-9 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                            title="Open Code Viewer"
+                        >
+                            <Code size={18} />
+                        </button>
+
+                         <button 
+                            onClick={exportProject}
+                            className="w-9 h-9 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                            title="Export JSON State"
+                        >
+                            <Download size={18} />
+                        </button>
+                         <label className="w-9 h-9 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl cursor-pointer transition-colors" title="Import JSON State">
+                            <span className="sr-only">Import</span>
+                            <Share2 size={18} className="transform rotate-90" />
+                            <input type="file" className="hidden" accept=".json" onChange={importProject} />
+                        </label>
+
+                        <button 
+                            onClick={handleDownloadCode}
+                            className="ml-2 flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20"
+                            title="Export PHP Code (ZIP)"
+                        >
+                            <FileArchive size={16} />
+                            <span>Export</span>
+                        </button>
+                    </div>
+                </div>
                 
                 {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} onEdit={(id) => setSelectedTableId(id)} onDelete={handleDeleteTable} onDuplicate={handleDuplicateTable} onAddTable={handleAddTable} onLayout={handleLayout} />}
             </ReactFlow>
@@ -817,7 +993,7 @@ export default function Editor() {
                                 <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
                                 <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
                              </div>
-                             <span className="ml-4 text-xs font-semibold text-slate-400">LaraSchema - Project Workspace</span>
+                             <span className="ml-4 text-xs font-semibold text-slate-400">LaraSchema - {projectTitle}</span>
                          </div>
                          <button onClick={() => setShowCodePreview(false)} className="text-slate-400 hover:text-white transition-colors">
                              <X size={18} />
@@ -865,6 +1041,8 @@ export default function Editor() {
                 onSubmit={handleCreateRelationship}
             />
         )}
+
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
         
       </ReactFlowProvider>
     </div>

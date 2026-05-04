@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { TableData, LaravelColumnType, AiSettings } from "../types";
 
@@ -32,6 +33,49 @@ const SCHEMA_RESPONSE_TYPE = {
 };
 
 export const suggestSchema = async (prompt: string, settings: AiSettings): Promise<TableData[]> => {
+  if (settings.model === 'chrome-builtin') {
+      // @ts-ignore
+      if (!window.ai || !window.ai.languageModel) {
+          throw new Error("Chrome Built-in AI is not available in this browser. Please enable chrome://flags/#prompt-api-for-gemini-nano");
+      }
+      try {
+          // @ts-ignore
+          const session = await window.ai.languageModel.create({
+              systemPrompt: "You are a Laravel Schema Architect. Return ONLY valid JSON array of table objects."
+          });
+          
+          const fullPrompt = `
+            Task: Design a normalized database schema based on: "${prompt}".
+            Target: ${settings.database}.
+            
+            Format:
+            [
+              {
+                "name": "table_name",
+                "description": "...",
+                "columns": [
+                  { "name": "...", "type": "...", "nullable": boolean, "unique": boolean, "is_foreign_key": boolean, "related_table": "..." }
+                ]
+              }
+            ]
+            
+            Rules:
+            1. Use snake_case for names.
+            2. Infer relationships.
+            3. Return ONLY JSON. No markdown.
+          `;
+          
+          // @ts-ignore
+          const result = await session.prompt(fullPrompt);
+          const cleanJson = result.replace(/```json|```/g, '').trim();
+          const rawTables = JSON.parse(cleanJson);
+          return processRawTables(rawTables);
+      } catch (e) {
+          console.error("Chrome AI Error:", e);
+          throw new Error("Failed to generate with Chrome Built-in AI. Ensure the model is downloaded.");
+      }
+  }
+
   if (!process.env.API_KEY) throw new Error("Gemini API Key is missing.");
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -71,6 +115,25 @@ export const suggestSchema = async (prompt: string, settings: AiSettings): Promi
 };
 
 export const suggestSchemaFromJson = async (reqJson: string, resJson: string, settings: AiSettings): Promise<TableData[]> => {
+    if (settings.model === 'chrome-builtin') {
+         // @ts-ignore
+        if (!window.ai || !window.ai.languageModel) {
+            throw new Error("Chrome Built-in AI is not available.");
+        }
+        // @ts-ignore
+        const session = await window.ai.languageModel.create();
+        const prompt = `Reverse engineer this JSON into a Laravel Schema JSON structure:\nRequest: ${reqJson}\nResponse: ${resJson}`;
+        // @ts-ignore
+        const result = await session.prompt(prompt);
+        // Basic cleanup, though window.ai output can be unpredictable without structured output support
+        const cleanJson = result.replace(/```json|```/g, '').trim(); 
+        try {
+            return processRawTables(JSON.parse(cleanJson));
+        } catch(e) {
+            throw new Error("Chrome AI output was not valid JSON.");
+        }
+    }
+
     if (!process.env.API_KEY) throw new Error("API Key missing");
     
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
